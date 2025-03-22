@@ -34,6 +34,6 @@ def ini_condition(x):
 
 item = DiffSchemes(name, dt, dx, x_range, t_range1, c = c, ini_condi = ini_condition, folder = folder)
 
-# item.lax_wendroff(t_plot)
-# item.warming_beam(t_plot)
+item.lax_wendroff(t_plot)
+item.warming_beam(t_plot)
 item.obtained(t_plot)

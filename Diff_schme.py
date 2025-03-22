@@ -229,7 +229,7 @@ class DiffSchemes:
             co_matrx[i, i + 1] = 0.5 * (c ** 2 - c)
         # compute and plot
         self._1d_1vec_static(co_matrx, scheme, t_plot)
-        return 0
+        return co_matrx
 
     def warming_beam(self, t_plot):
         # scheme parameters
@@ -252,7 +252,7 @@ class DiffSchemes:
             co_matrx[i, i - 2] = - 0.5 * (c - c ** 2)
         # compute and plot
         self._1d_1vec_static(co_matrx, scheme, t_plot)
-        return 0
+        return co_matrx
 
     def obtained(self, t_plot):
         # scheme parameters
@@ -262,11 +262,10 @@ class DiffSchemes:
         co_matrx = np.zeros([len(self.x), len(self.x)])
         for i in range(0, len(self.x)):
             s1 = (i + 1) if i <= (len(self.x) - 2) else (len(self.x) - i - 1)
-            co_matrx[i, i] = (2 - c - 6 * c ** 2 + 3 * c ** 3) / 6
-            co_matrx[i, i - 1] = (4 + 4 * c + 3 * c ** 2 - 3 * c ** 3) / 6
+            co_matrx[i, i] = (2 - c - 2 * c ** 2 + c ** 3) / 2
+            co_matrx[i, i - 1] = c * (2 + c - c ** 2) / 2
             co_matrx[i, i - 2] = (c * (c ** 2 - 1)) / 6
-            co_matrx[i, s1] = - c * (2 - 3 * c + c ** 2) / 6
-        print(co_matrx)
+            co_matrx[i, s1] = -c * (2 - 3 * c + c ** 2) / 6
         # compute and plot
         self._1d_1vec_static(co_matrx, scheme, t_plot)
         return 0

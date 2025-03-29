@@ -149,6 +149,5 @@ c_ls = [0.1, 0.5, 1, 2, 2.5, 2.7, 2.8, 2.85, 2.9, 3]
 
 
 compute_stability_certain_c(k_range, c_ls, mu, delta)
-
 compute_over_c(c_range, c_range, mu, delta)
 compute_critical_c_over_mu(k_range, c_range, mu_range, delta)

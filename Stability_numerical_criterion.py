@@ -126,10 +126,17 @@ def compute_critical_c_over_mu(k_range, c_range, mu_range, delta, plot = True):
     for i, mu in enumerate(mu_range):
         nonzero_c = compute_over_c(k_range, c_range, mu, delta, plot = False)
         criticals[i] = nonzero_c
+    max_idx = np.argmax(criticals)
     if plot == True:
         path = f'Critical_c_over_mu.png'
         plt.plot(mu_range, criticals)
-
+        plt.scatter(
+            mu_range[max_idx],
+            criticals[max_idx],
+            color="red",
+            label=fr"Maximum c={criticals[max_idx]:.4f} at $\mu$ = {mu_range[max_idx]:.4f}"
+        )
+        plt.legend()
         plt.xlabel(r"$\mu$")
         plt.ylabel("Critical c values")
         plt.title(r"Critical c values vs. $\mu$")

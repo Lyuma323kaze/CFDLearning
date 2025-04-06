@@ -7,7 +7,7 @@ import os
 
 
 class DiffSchemes:
-    def __init__(self, name, dt, dx, x, t, sigma = None, c = None, gamma = None, ini_condi = None, bnd_condi = None, folder = None):
+    def __init__(self, name, dt, dx, x, t, sigma = None, c = None, a = None, gamma = None, ini_condi = None, bnd_condi = None, folder = None):
         self.dt = dt
         self.dx = dx
         self.sigma = sigma
@@ -43,15 +43,25 @@ class DiffSchemes:
         plt.savefig(file_path)
         plt.close()
 
-    def _plot_cfl(self, result, time, scheme):
+    def _plot_cfl(self, result, time, scheme, mesh = None, cfl = True, k_2 = None, k_4 = None):
         if not os.path.exists(self.file_folder):
             os.makedirs(self.file_folder)
         file_folder = self.file_folder
         x = self.x
         y = result
-        if not os.path.exists(os.path.join(file_folder, f'{self.name}@{scheme}@CFL = {self.c}')):
-            os.makedirs(os.path.join(file_folder, f'{self.name}@{scheme}@CFL = {self.c}'))
-        file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@CFL = {self.c}')
+        file_subfolder = file_folder
+        if cfl:
+            file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@CFL = {self.c}')
+            if not os.path.exists(file_subfolder):
+                os.makedirs(file_subfolder)
+        elif mesh is not None:
+            file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@mesh = {len(self.x)}')
+            if k_2 is not None:
+                file_subfolder = os.path.join(file_subfolder, f'@$k_2$ = {k_2}')
+            if k_4 is not None:
+                file_subfolder = os.path.join(file_subfolder, f'@$k_4$ = {k_4}')
+            if not os.path.exists(file_subfolder):
+                os.makedirs(file_subfolder)
         plt.figure(figsize=(8, 6))
         plt.plot(x, y, marker='o', linestyle='-', color='b', label='Temperature')
         plt.title(f"Solution at Time={time:.3f},step = {int(time / self.dt)}")
@@ -209,6 +219,56 @@ class DiffSchemes:
         print('space interval:', self.dx)
         return matrx
 
+    def _1d_3vec_eulerian(self, matrx_ini, F_gene: callable, scheme: str, t_plot, mesh = True, k_2 = None, k_4 = None):
+        matrx = matrx_ini.copy()
+        t_x = self.dt / self.dx
+        for i in range(1, len(self.t)):
+            matrx_f = matrx.copy()
+            F_half = F_gene(matrx_f)
+            matrx = matrx_f - t_x * (F_half[1:] - F_half[:-1])
+            for time in t_plot:
+                if self.t[i] <= time < self.t[i + 1]:
+                    self._plot_cfl(matrx, time, scheme, cfl = False, mesh = mesh, k_2 = k_2, k_4 = k_4)
+        print(f'case: {self.name}, scheme: {scheme}')
+        print(f'Space range: from {self.left_x} to {self.right_x}.')
+        print('time interval:', self.dt)
+        print('space interval:', self.dx)
+        return 0
+
+    def _1d_eulerian_u_a(self, matrx_f):
+        gamma = self.gamma
+        def det_a_matrx(matrx_f):
+            a_matrx = np.zeros(len(self.x) + 2)
+            a_matrx[1: -1] = ((gamma * (gamma - 1) * (matrx_f[:, 2] - matrx_f[:, 1] ** 2 / (2 * matrx_f[:, 1])))
+                        / matrx_f[:, 0]) ** 0.5
+            a_matrx[0] = a_matrx[1]
+            a_matrx[-1] = a_matrx[-2]
+            return a_matrx
+        a_matrx = det_a_matrx(matrx_f)
+        # velocity
+        def det_u_matrx(matrx_f):
+            u_matrx = np.zeros(len(self.x) + 2)
+            u_matrx[1: -1] = matrx_f[:, 1] / matrx_f[:, 0]
+            u_matrx[0] = u_matrx[1]
+            u_matrx[-1] = u_matrx[-2]
+            return u_matrx
+        u_matrx = det_u_matrx(matrx_f)
+        return u_matrx, a_matrx
+
+    def _1d_eulerian_A(self, matrx_f):
+        gamma = self.gamma
+        A = np.zeros([matrx_f.shape[0], 3, 3])
+        A[:, 0, 0] = A[:, 0, 2] = 0
+        A[:, 0, 1] = 1
+        A[:, 1, 0] = (gamma - 3) * 0.5 * (matrx_f[:, 1] ** 2 / matrx_f[:, 0] ** 2)
+        A[:, 1, 1] = (3 - gamma) * matrx_f[:, 1] / matrx_f[:, 0]
+        A[:, 1, 2] = gamma - 1
+        A[:, 2, 0] = (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 - gamma * matrx_f[:, 1] * matrx_f[:, 2] / matrx_f[:,
+                                                                                                          0] ** 2
+        A[:, 2, 1] = -1.5 * (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 + gamma * matrx_f[:, 2] / matrx_f[:, 0]
+        A[:, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]
+        return A
+
     def lax_wendroff(self, t_plot):
         # scheme parameters
         scheme = 'Lax-Wendroff'
@@ -281,75 +341,66 @@ class DiffSchemes:
         matrx[:, 1] = rho_u_p[:, 0] * rho_u_p[:, 1]
         matrx[:, 2] = (rho_u_p[:, 2] / (gamma - 1)) + 0.5 * rho_u_p[:, 0] * rho_u_p[:, 1] ** 2
         matrx_f = matrx.copy()
-        # speed of sound
-        a_matrx = np.zeros(len(self.x) + 2)
-        a_matrx[1: -1] = ((gamma * (gamma - 1) * (matrx_f[:, 2] - matrx_f[:, 1] ** 2 / (2 * matrx_f[:, 1])))
-                    / matrx_f[:, 0]) ** 0.5
-        a_matrx[0] = a_matrx[1]
-        a_matrx[-1] = a_matrx[-2]
-        # velocity
-        u_matrx = np.zeros(len(self.x) + 2)
-        u_matrx[1: -1] = matrx_f[:, 1] / matrx_f[:, 0]
-        u_matrx[0] = u_matrx[1]
-        u_matrx[-1] = u_matrx[-2]
 
         # Define Jacobian A ${\part F\over\part U}$
-        A = np.zeros([matrx.shape[0], 3, 3])
-        A[:, 0, 0] = A[:, 0, 2] = 0
-        A[:, 0, 1] = 1
-        A[:, 1, 0] = (gamma - 3) * 0.5 * (matrx[:, 1] ** 2 / matrx[:, 0] ** 2)
-        A[:, 1, 1] = (3 - gamma) * matrx[:, 1] / matrx[:, 0]
-        A[:, 1, 2] = gamma - 1
-        A[:, 2, 0] = (gamma - 1) * (matrx[:, 1] / matrx[:, 0]) ** 2 - gamma * matrx[:, 1] * matrx[:, 2] / matrx[:, 0] ** 2
-        A[:, 2, 1] = -1.5 * (gamma - 1) * (matrx[:, 1] / matrx[:, 0]) ** 2 + gamma * matrx[:, 2] / matrx[:, 0]
-        A[:, 2, 2] = gamma * matrx[:, 1] / matrx[:, 0]
+        A = self._1d_eulerian_A(matrx_f)
 
-        # The basic flux
-        F_matrx = np.zeros([len(self.x) + 2, 3])
-        F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, u_matrx)
-        F_matrx[0] = F_matrx[1]
-        F_matrx[-1] = F_matrx[-2]
-        # basic half-node flux
-        F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])
-        # artificial viscosity added
-        u_abs = np.abs(u_matrx)
-        a_abs = np.abs(a_matrx)
-        vis_matrx = -0.25 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:]) * (u_matrx[1:] - u_matrx[:-1])
-        # final half-node flux
-        F_half -= vis_matrx
+        # Flux generator
+        def F_gene(matrx_f):
+            # u and a (speed of sound) array
+            u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f)
+            # The basic flux
+            F_matrx = np.zeros([len(self.x) + 2, 3])
+            F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, u_matrx)
+            F_matrx[0] = F_matrx[1]
+            F_matrx[-1] = F_matrx[-2]
+            # basic half-node flux
+            F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])
+            # artificial viscosity added
+            u_abs = np.abs(u_matrx)
+            a_abs = np.abs(a_matrx)
+            vis_matrx = -0.25 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:]) * (u_matrx[1:] - u_matrx[:-1])
+            # final half-node flux
+            F_half -= vis_matrx
+            return F_half
 
-        # compute
-        for i in range(1, len(self.t)):
+        # compute and plot
+        self._1d_3vec_eulerian(matrx, F_gene, scheme, t_plot)
+        return 0
 
-
-        # plot
-        for time in t_plot:
-            self._plot_sigma(matrx[:, int(time / self.dt)], time, scheme)
-        print(f'case: {self.name}, scheme: {scheme}')
-        print(f'Space range: from {self.left_x} to {self.right_x}.')
-        print('time interval:', self.dt)
-        print('space interval:', self.dx)
-        return matrx
-
-    def jameson(self, t_plot):
+    def jameson(self, t_plot, k_2 = 0.55, k_4 = 1 / 100):
         # initial and boundary
-        scheme = 'FTCS'
-        matrx = np.zeros([len(self.x), len(self.t)])
-        matrx[:, 0] = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
-        bd_vec = self.bound_condition
-        # compute
-        for i in range(1, len(self.t)):
-            rhs = matrx[:, i - 1].copy()
-            rhs[0], rhs[-1] = bd_vec(i * self.dt)
-            matrx[:, i - 1] = rhs
-            for j in range(1, len(self.x) - 1):
-                matrx[j, i] = self.sigma * matrx[j + 1, i - 1] + (1 - 2 * self.sigma) \
-                              * matrx[j, i - 1] + self.sigma * matrx[j - 1, i - 1]
-        # plot
-        for time in t_plot:
-            self._plot_sigma(matrx[:, int(time / self.dt)], time, scheme)
-        print(f'case: {self.name}, scheme: {scheme}')
-        print(f'Space range: from {self.left_x} to {self.right_x}.')
-        print('time interval:', self.dt)
-        print('space interval:', self.dx)
-        return matrx
+        scheme = 'Jameson'
+        gamma = self.gamma
+        matrx = np.zeros([len(self.x), 3])
+        rho_u_p = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        matrx[:, 0] = rho_u_p[:, 0]
+        matrx[:, 1] = rho_u_p[:, 0] * rho_u_p[:, 1]
+        matrx[:, 2] = (rho_u_p[:, 2] / (gamma - 1)) + 0.5 * rho_u_p[:, 0] * rho_u_p[:, 1] ** 2
+        matrx_f = matrx.copy()
+
+        # Define Jacobian A ${\part F\over\part U}$
+        A = self._1d_eulerian_A(matrx_f)
+
+        # Flux generator
+        def F_gene(matrx_f):
+            # u and a (speed of sound) array
+            u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f)
+            # The basic flux
+            F_matrx = np.zeros([len(self.x) + 2, 3])
+            F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, u_matrx)
+            F_matrx[0] = F_matrx[1]
+            F_matrx[-1] = F_matrx[-2]
+            # basic half-node flux
+            F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])
+            # artificial viscosity added
+            u_abs = np.abs(u_matrx)
+            a_abs = np.abs(a_matrx)
+            vis_matrx = -0.25 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:]) * (u_matrx[1:] - u_matrx[:-1])
+            # final half-node flux
+            F_half -= vis_matrx
+            return F_half
+
+        # compute and plot
+        self._1d_3vec_eulerian(matrx, F_gene, scheme, t_plot, k_2 = k_2, k_4 = k_4)
+        return 0

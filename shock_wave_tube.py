@@ -27,6 +27,8 @@ t_plot = np.arange(0, t_terminate, 0.01)
 # initial condition
 def ini_condition(x):
     if x <= 0:
-        return 1, 0.75, 1
+        return np.array([1, 0.75, 1])
     else:
-        return 0.125, 0, 0.1
+        return np.array([0.125, 0, 0.1])
+
+item = DiffSchemes(name, dt, dx, x_range, t_range1, c = c, ini_condi = ini_condition, folder = folder)

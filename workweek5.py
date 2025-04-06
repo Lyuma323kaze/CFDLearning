@@ -20,7 +20,7 @@ dt = c * dx / a
 
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)
-t_range1 = np.arange(0, t_terminate, dt)
+t_range = np.arange(0, t_terminate, dt)
 t_plot = np.array([0.1, 1.0, 10.0])
 
 # initial condition
@@ -32,7 +32,7 @@ def ini_condition(x):
     else:
         return 0
 
-item = DiffSchemes(name, dt, dx, x_range, t_range1, c = c, ini_condi = ini_condition, folder = folder)
+item = DiffSchemes(name, dt, dx, x_range, t_range, gamma = gamma, c = c, ini_condi = ini_condition, folder = folder)
 
 item.lax_wendroff(t_plot)
 item.warming_beam(t_plot)

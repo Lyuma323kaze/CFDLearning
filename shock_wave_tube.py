@@ -20,7 +20,7 @@ dx = (right_x - left_x) / (mx - 2)
 dt = c * dx / a
 
 # artificial viscosity parameters
-k2 = 8
+k2 = 20
 k4 = 5e-2
 
 # set of mesh points and plot points

@@ -250,7 +250,7 @@ class DiffSchemes:
         print('space interval:', self.dx)
         return matrx
 
-    def _1d_3vec_eulerian(self, matrx_ini, F_gene: callable, scheme: str, t_plot, mesh = True, k_2 = None, k_4 = None):
+    def _1d_3vec_eulerian_explicit(self, matrx_ini, F_gene: callable, scheme: str, t_plot, mesh = True, k_2 = None, k_4 = None):
         matrx = matrx_ini.copy()
         t_x = self.dt / self.dx
         for i in range(1, len(self.t)):
@@ -260,6 +260,24 @@ class DiffSchemes:
             for time in t_plot:
                 if self.t[i] <= time < self.t[i + 1]:
                     self._plot_cfl(matrx, time, scheme, cfl = False, mesh = mesh, k_2 = k_2, k_4 = k_4)
+        print(f'case: {self.name}, scheme: {scheme}')
+        print(f'Space range: from {self.left_x} to {self.right_x}.')
+        print('time interval:', self.dt)
+        print('space interval:', self.dx)
+        return 0
+
+    def _1d_3vec_eulerian_rk2(self, matrx_ini, F_gene: callable, scheme: str, t_plot, mesh = True, k_2 = None, k_4 = None):
+        matrx = matrx_ini.copy()
+        t_x = self.dt / self.dx
+        for i in range(1, len(self.t)):
+            matrx_f = matrx.copy()
+            F_half = F_gene(matrx_f)
+            matrx_1 = matrx_f - 0.5 * t_x * (F_half[1:] - F_half[:-1])
+            F_half_1 = F_gene(matrx_1)
+            matrx = matrx_f - t_x * (F_half_1[1:] - F_half_1[:-1])
+            for time in t_plot:
+                if self.t[i] <= time < self.t[i + 1]:
+                    self._plot_cfl(matrx, time, scheme, cfl=False, mesh=mesh, k_2=k_2, k_4=k_4)
         print(f'case: {self.name}, scheme: {scheme}')
         print(f'Space range: from {self.left_x} to {self.right_x}.')
         print('time interval:', self.dt)
@@ -404,7 +422,7 @@ class DiffSchemes:
             return F_half
 
         # compute and plot
-        self._1d_3vec_eulerian(matrx, F_gene, scheme, t_plot)
+        self._1d_3vec_eulerian_rk2(matrx, F_gene, scheme, t_plot)
         return 0
 
     def jameson(self, t_plot, k_2 = 0.55, k_4 = 1 / 100):
@@ -460,5 +478,5 @@ class DiffSchemes:
             return F_half
 
         # compute and plot
-        self._1d_3vec_eulerian(matrx, F_gene, scheme, t_plot, k_2 = k_2, k_4 = k_4)
+        self._1d_3vec_eulerian_rk2(matrx, F_gene, scheme, t_plot, k_2 = k_2, k_4 = k_4)
         return 0

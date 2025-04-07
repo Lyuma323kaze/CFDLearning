@@ -12,16 +12,16 @@ right_x = 0.5
 t_terminate = 0.25
 
 # mesh parameters
-mx = 80    # mesh point number
-c = 0.005 # CFL number
+mx = 200    # mesh point number
+c = 0.01 # CFL number
 a = 1 # convective wave speed
 gamma = 1.4 # isentropic ratio
 dx = (right_x - left_x) / (mx - 2)
 dt = c * dx / a
 
 # artificial viscosity parameters
-k2 = 20
-k4 = 5e-2
+k2 = 25
+k4 = 0.2
 
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)

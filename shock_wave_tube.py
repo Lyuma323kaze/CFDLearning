@@ -19,6 +19,10 @@ gamma = 1.4 # isentropic ratio
 dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
 
+# artificial viscosity parameters
+k2 = 0.55
+k4 = 0.01
+
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)
 t_range1 = np.arange(0, t_terminate, dt)
@@ -31,4 +35,7 @@ def ini_condition(x):
     else:
         return np.array([0.125, 0, 0.1])
 
-item = DiffSchemes(name, dt, dx, x_range, t_range1, c = c, ini_condi = ini_condition, folder = folder)
+item = DiffSchemes(name, dt, dx, x_range, t_range1, gamma = gamma, c = c, ini_condi = ini_condition, folder = folder)
+
+item.rusanov(t_plot)
+item.jameson(t_plot, k_2=k2, k_4=k4)

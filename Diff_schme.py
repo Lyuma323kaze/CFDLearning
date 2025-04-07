@@ -243,6 +243,7 @@ class DiffSchemes:
                         / matrx_f[:, 0]) ** 0.5
             a_matrx[0] = a_matrx[1]
             a_matrx[-1] = a_matrx[-2]
+            a_matrx = a_matrx[:, np.newaxis]
             return a_matrx
         a_matrx = det_a_matrx(matrx_f)
         # velocity
@@ -251,24 +252,23 @@ class DiffSchemes:
             u_matrx[1: -1] = matrx_f[:, 1] / matrx_f[:, 0]
             u_matrx[0] = u_matrx[1]
             u_matrx[-1] = u_matrx[-2]
+            u_matrx = u_matrx[:, np.newaxis]
             return u_matrx
         u_matrx = det_u_matrx(matrx_f)
         return u_matrx, a_matrx
 
     def _1d_eulerian_A(self, matrx_f):
         gamma = self.gamma
-        A = np.zeros([matrx_f.shape[0] + 2, 3, 3])
-        A[1:-1, 0, 0] = A[:, 0, 2] = 0
-        A[1:-1, 0, 1] = 1
-        A[1:-1, 1, 0] = (gamma - 3) * 0.5 * (matrx_f[:, 1] ** 2 / matrx_f[:, 0] ** 2)
-        A[1:-1, 1, 1] = (3 - gamma) * matrx_f[:, 1] / matrx_f[:, 0]
-        A[1:-1, 1, 2] = gamma - 1
-        A[1:-1, 2, 0] = (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 - gamma * matrx_f[:, 1] * matrx_f[:, 2] / matrx_f[:,
+        A = np.zeros([matrx_f.shape[0], 3, 3])
+        A[:, 0, 0] = A[:, 0, 2] = 0
+        A[:, 0, 1] = 1
+        A[:, 1, 0] = (gamma - 3) * 0.5 * (matrx_f[:, 1] ** 2 / matrx_f[:, 0] ** 2)
+        A[:, 1, 1] = (3 - gamma) * matrx_f[:, 1] / matrx_f[:, 0]
+        A[:, 1, 2] = gamma - 1
+        A[:, 2, 0] = (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 - gamma * matrx_f[:, 1] * matrx_f[:, 2] / matrx_f[:,
                                                                                                           0] ** 2
-        A[1:-1, 2, 1] = -1.5 * (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 + gamma * matrx_f[:, 2] / matrx_f[:, 0]
-        A[1:-1, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]
-        A[0] = A[1]
-        A[-1] = A[-2]
+        A[:, 2, 1] = -1.5 * (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 + gamma * matrx_f[:, 2] / matrx_f[:, 0]
+        A[:, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]
         return A
 
     def lax_wendroff(self, t_plot):
@@ -353,9 +353,7 @@ class DiffSchemes:
             u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f)
             # The basic flux
             F_matrx = np.zeros([len(self.x) + 2, 3])
-            print(f'A shape: {A.shape}')
-            print(f'u_matrx shape: {u_matrx.shape}')
-            F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, u_matrx)
+            F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, matrx_f)
             F_matrx[0] = F_matrx[1]
             F_matrx[-1] = F_matrx[-2]
             # basic half-node flux
@@ -363,7 +361,13 @@ class DiffSchemes:
             # artificial viscosity added
             u_abs = np.abs(u_matrx)
             a_abs = np.abs(a_matrx)
-            vis_matrx = -0.25 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:]) * (u_matrx[1:] - u_matrx[:-1])
+            # expanded matrx
+            matrx_expand = np.zeros([len(self.x) + 2, 3])
+            matrx_expand[1:-1] = matrx_f
+            matrx_expand[0] = matrx_expand[1]
+            matrx_expand[-1] = matrx_expand[-2]
+            # artificial viscosity
+            vis_matrx = -0.25 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:]) * (matrx_expand[1:] - matrx_expand[:-1])
             # final half-node flux
             F_half += vis_matrx
             return F_half
@@ -382,7 +386,6 @@ class DiffSchemes:
         matrx[:, 1] = rho_u_p[:, 0] * rho_u_p[:, 1]
         matrx[:, 2] = (rho_u_p[:, 2] / (gamma - 1)) + 0.5 * rho_u_p[:, 0] * rho_u_p[:, 1] ** 2
         matrx_f = matrx.copy()
-        matrx_ini = matrx.copy()
 
         # Define Jacobian A ${\part F\over\part U}$
         A = self._1d_eulerian_A(matrx_f)
@@ -393,7 +396,7 @@ class DiffSchemes:
             u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f)
             # The basic flux
             F_matrx = np.zeros([len(self.x) + 2, 3])
-            F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, u_matrx)
+            F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, matrx_f)
             F_matrx[0] = F_matrx[1]
             F_matrx[-1] = F_matrx[-2]
             # basic half-node flux
@@ -401,23 +404,26 @@ class DiffSchemes:
             # artificial viscosity added
             u_abs = np.abs(u_matrx)
             a_abs = np.abs(a_matrx)
-            p_matrx = np.zeros(len(self.x) + 5)
-            p_matrx[3:-3] = (gamma - 1) * (matrx_f[:, 3] - 0.5 * matrx_f[:, 1] ** 2 / matrx_f[:, 1])
-            p_matrx[0] = p_matrx[1] = p_matrx[2]
+            p_matrx = np.zeros(len(self.x) + 6)
+            p_matrx[3:-3] = (gamma - 1) * (matrx_f[:, 2] - 0.5 * matrx_f[:, 1] ** 2 / matrx_f[:, 0])
+            p_matrx[0] = p_matrx[1] = p_matrx[2] = p_matrx[3]
             p_matrx[-1] = p_matrx[-2] = p_matrx[-3] = p_matrx[-4]
             # viscous parameter $\varepsilon_2$
             nu_matrx = np.abs(p_matrx[2:] - 2 * p_matrx[1:-1] + p_matrx[:-2]) / np.abs(p_matrx[2:] + 2 * p_matrx[1:-1] + p_matrx[:-2])
+            # print(f'nu_matrx shape = {nu_matrx.shape}')
             windows = np.lib.stride_tricks.sliding_window_view(nu_matrx, window_shape=4)
             e2_matrx = k_2 * np.max(windows, axis=1)
+            e2_matrx = e2_matrx[:, np.newaxis]
             e4_matrx = np.maximum(0, k_4 - e2_matrx)
             # expanded matrx
-            matrx_expand = np.zeros(len(self.x) + 3)
-            matrx_expand[1:-2] = matrx_f
-            matrx_expand[0] = matrx_expand[1]
+            matrx_expand = np.zeros([len(self.x) + 4, 3])
+            matrx_expand[2:-2] = matrx_f
+            matrx_expand[0] = matrx_expand[1] = matrx_expand[2]
             matrx_expand[-1] = matrx_expand[-2] = matrx_expand[-3]
+            # lambda_max and artificial viscosity
             lambda_max = 0.5 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:])
-            vis_matrx_2 = -lambda_max * e2_matrx * (matrx_expand[2:-1] - matrx_expand[1: -2])
-            vis_matrx_4 = lambda_max * e4_matrx * (matrx_expand[3:] - 3 * matrx_expand[2:-1] + 3 * matrx_expand[1:-2] - matrx_expand[:-3])
+            vis_matrx_2 = -e2_matrx * lambda_max * (matrx_expand[2:-1] - matrx_expand[1:-2])
+            vis_matrx_4 = e4_matrx * lambda_max * (matrx_expand[3:] - 3 * matrx_expand[2:-1] + 3 * matrx_expand[1:-2] - matrx_expand[:-3])
             # final half-node flux
             F_half += (vis_matrx_2 + vis_matrx_4)
             return F_half

@@ -3,7 +3,7 @@ import numpy as np
 
 # name and folder of the case
 name = 'shock_wave_tube'
-folder = 'WorkWeek6'
+folder = 'WorkWeek7'
 
 # domain parameters
 left_x = -0.5
@@ -12,11 +12,11 @@ right_x = 0.5
 t_terminate = 0.25
 
 # mesh parameters
-mx = 100    # mesh point number
-c = 0.5 # CFL number
+mx = 500    # mesh point number
+c = 0.3 # CFL number
 a = 1 # convective wave speed
 gamma = 1.4 # isentropic ratio
-dx = (right_x - left_x) / (mx - 1)
+dx = (right_x - left_x) / (mx - 2)
 dt = c * dx / a
 
 # artificial viscosity parameters

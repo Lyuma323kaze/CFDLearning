@@ -57,9 +57,40 @@ class DiffSchemes:
         elif mesh is not None:
             file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@mesh = {len(self.x)}')
             if k_2 is not None:
-                file_subfolder = os.path.join(file_subfolder, f'@$k_2$ = {k_2}')
-            if k_4 is not None:
-                file_subfolder = os.path.join(file_subfolder, f'@$k_4$ = {k_4}')
+                file_subfolder = os.path.join(file_subfolder, f'@k_2 = {k_2}@k_4 = {k_4}')
+            if not os.path.exists(file_subfolder):
+                os.makedirs(file_subfolder)
+        plt.figure(figsize=(8, 6))
+        plt.plot(x, y, marker='o', linestyle='-', color='b', label='Temperature')
+        plt.title(f"Solution at Time={time:.3f},step = {int(time / self.dt)}")
+        plt.xlabel("x")
+        plt.ylabel("Temperature")
+        plt.ylim(0, 3.3)
+        plt.grid(True)
+        plt.legend()
+        file_path = os.path.join(file_subfolder, f'Solution at {time:.3f}.png')
+        plt.savefig(file_path)
+        plt.close()
+
+    def _plot_1d_3vec(self, result, time, scheme, mesh = None, cfl = True, k_2 = None, k_4 = None):
+        gamma = self.gamma
+        if not os.path.exists(self.file_folder):
+            os.makedirs(self.file_folder)
+        file_folder = self.file_folder
+        x = self.x
+        y = result
+        rho_result = y[0]
+        u_result = y[1] / y[0]
+        p_result = (gamma - 1) * (y[2] - 0.5 * y[1] ** 2 / y[0])
+        file_subfolder = file_folder
+        if cfl:
+            file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@CFL = {self.c}')
+            if not os.path.exists(file_subfolder):
+                os.makedirs(file_subfolder)
+        elif mesh is not None:
+            file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@mesh = {len(self.x)}')
+            if k_2 is not None:
+                file_subfolder = os.path.join(file_subfolder, f'@k_2 = {k_2}@k_4 = {k_4}')
             if not os.path.exists(file_subfolder):
                 os.makedirs(file_subfolder)
         plt.figure(figsize=(8, 6))
@@ -239,8 +270,8 @@ class DiffSchemes:
         gamma = self.gamma
         def det_a_matrx(matrx_f):
             a_matrx = np.zeros(len(self.x) + 2)
-            a_matrx[1: -1] = ((gamma * (gamma - 1) * (matrx_f[:, 2] - matrx_f[:, 1] ** 2 / (2 * matrx_f[:, 1])))
-                        / matrx_f[:, 0]) ** 0.5
+            a_matrx[1: -1] = (((gamma * (gamma - 1) * (matrx_f[:, 2] - 0.5 * matrx_f[:, 1] ** 2 / matrx_f[:, 0]))
+                        / matrx_f[:, 0]) ** 0.5)
             a_matrx[0] = a_matrx[1]
             a_matrx[-1] = a_matrx[-2]
             a_matrx = a_matrx[:, np.newaxis]
@@ -265,7 +296,7 @@ class DiffSchemes:
         A[:, 1, 0] = (gamma - 3) * 0.5 * (matrx_f[:, 1] ** 2 / matrx_f[:, 0] ** 2)
         A[:, 1, 1] = (3 - gamma) * matrx_f[:, 1] / matrx_f[:, 0]
         A[:, 1, 2] = gamma - 1
-        A[:, 2, 0] = (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 - gamma * matrx_f[:, 1] * matrx_f[:, 2] / matrx_f[:,
+        A[:, 2, 0] = (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 3 - gamma * matrx_f[:, 1] * matrx_f[:, 2] / matrx_f[:,
                                                                                                           0] ** 2
         A[:, 2, 1] = -1.5 * (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 + gamma * matrx_f[:, 2] / matrx_f[:, 0]
         A[:, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]

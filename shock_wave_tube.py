@@ -12,16 +12,16 @@ right_x = 0.5
 t_terminate = 0.25
 
 # mesh parameters
-mx = 200    # mesh point number
-c = 0.01 # CFL number
+mx = 50    # mesh point number
+c = 1e-3 # CFL number
 a = 1 # convective wave speed
 gamma = 1.4 # isentropic ratio
-dx = (right_x - left_x) / (mx - 2)
+dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
 
 # artificial viscosity parameters
-k2 = 25
-k4 = 0.2
+k2 = 1
+k4 = 0.01
 
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)
@@ -33,7 +33,7 @@ def ini_condition(x):
     if x <= 0:
         return np.array([1, 0.75, 1])
     else:
-        return np.array([0.125, 0, 0.1])
+        return np.array([0.125, 1e-2, 0.1])
 
 item = DiffSchemes(name, dt, dx, x_range, t_range1, gamma = gamma, c = c, ini_condi = ini_condition, folder = folder)
 

@@ -79,9 +79,9 @@ class DiffSchemes:
         file_folder = self.file_folder
         x = self.x
         y = result
-        rho_result = y[0]
-        u_result = y[1] / y[0]
-        p_result = (gamma - 1) * (y[2] - 0.5 * y[1] ** 2 / y[0])
+        rho_result = y[:, 0]
+        u_result = y[:, 1] / y[:, 0]
+        p_result = (gamma - 1) * (y[:, 2] - 0.5 * y[:, 1] ** 2 / y[:, 0])
         file_subfolder = file_folder
         if cfl:
             file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@CFL = {self.c}')
@@ -93,15 +93,50 @@ class DiffSchemes:
                 file_subfolder = os.path.join(file_subfolder, f'@k_2 = {k_2}@k_4 = {k_4}')
             if not os.path.exists(file_subfolder):
                 os.makedirs(file_subfolder)
+
+        rho_subfolder = os.path.join(file_subfolder, 'rho')
+        u_subfolder = os.path.join(file_subfolder, 'u')
+        p_subfolder = os.path.join(file_subfolder, 'p')
+        if not os.path.exists(rho_subfolder):
+            os.makedirs(rho_subfolder)
+        if not os.path.exists(u_subfolder):
+            os.makedirs(u_subfolder)
+        if not os.path.exists(p_subfolder):
+            os.makedirs(p_subfolder)
+
         plt.figure(figsize=(8, 6))
-        plt.plot(x, y, marker='o', linestyle='-', color='b', label='Temperature')
-        plt.title(f"Solution at Time={time:.3f},step = {int(time / self.dt)}")
+        plt.plot(x, rho_result, marker='o', linestyle='-', color='b', label=r'$\rho$')
+        plt.title(fr"Solution of $\rho$ at Time={time:.3f},step = {int(time / self.dt)}")
         plt.xlabel("x")
-        plt.ylabel("Temperature")
-        plt.ylim(0, 3.3)
+        plt.ylabel(r"Density $\rho$")
+        plt.ylim(0, 4)
         plt.grid(True)
         plt.legend()
-        file_path = os.path.join(file_subfolder, f'Solution at {time:.3f}.png')
+        file_path = os.path.join(rho_subfolder, f'Solution@rho at {time:.3f}.png')
+        plt.savefig(file_path)
+        plt.close()
+
+        plt.figure(figsize=(8, 6))
+        plt.plot(x, u_result, marker='o', linestyle='-', color='r', label='Velocity')
+        plt.title(fr"Solution of $u$ at Time={time:.3f},step = {int(time / self.dt)}")
+        plt.xlabel("x")
+        plt.ylabel(r"Velocity $u$")
+        plt.ylim(0, 4)
+        plt.grid(True)
+        plt.legend()
+        file_path = os.path.join(u_subfolder, f'Solution@u at {time:.3f}.png')
+        plt.savefig(file_path)
+        plt.close()
+
+        plt.figure(figsize=(8, 6))
+        plt.plot(x, p_result, marker='o', linestyle='-', color='g', label='Pressure')
+        plt.title(fr"Solution of $p$ at Time={time:.3f},step = {int(time / self.dt)}")
+        plt.xlabel("x")
+        plt.ylabel(r"Velocity $p$")
+        plt.ylim(0, 4)
+        plt.grid(True)
+        plt.legend()
+        file_path = os.path.join(p_subfolder, f'Solution@p at {time:.3f}.png')
         plt.savefig(file_path)
         plt.close()
 
@@ -259,7 +294,7 @@ class DiffSchemes:
             matrx = matrx_f - t_x * (F_half[1:] - F_half[:-1])
             for time in t_plot:
                 if self.t[i] <= time < self.t[i + 1]:
-                    self._plot_cfl(matrx, time, scheme, cfl = False, mesh = mesh, k_2 = k_2, k_4 = k_4)
+                    self._plot_1d_3vec(matrx, time, scheme, cfl = False, mesh = mesh, k_2 = k_2, k_4 = k_4)
         print(f'case: {self.name}, scheme: {scheme}')
         print(f'Space range: from {self.left_x} to {self.right_x}.')
         print('time interval:', self.dt)
@@ -281,7 +316,7 @@ class DiffSchemes:
             matrx = matrx_f - t_x * (F_half_3[1:] - F_half_3[:-1])
             for time in t_plot:
                 if self.t[i] <= time < self.t[i + 1]:
-                    self._plot_cfl(matrx, time, scheme, cfl=False, mesh=mesh, k_2=k_2, k_4=k_4)
+                    self._plot_1d_3vec(matrx, time, scheme, cfl=False, mesh=mesh, k_2=k_2, k_4=k_4)
         print(f'case: {self.name}, scheme: {scheme}')
         print(f'Space range: from {self.left_x} to {self.right_x}.')
         print('time interval:', self.dt)
@@ -290,8 +325,9 @@ class DiffSchemes:
 
     def _1d_eulerian_u_a(self, matrx_f):
         gamma = self.gamma
+        # speed of sound
         def det_a_matrx(matrx_f):
-            a_matrx = np.zeros(len(self.x) + 2)
+            a_matrx = np.zeros(len(self.x) + 2) # -1 to l
             a_matrx[1: -1] = (((gamma * (gamma - 1) * (matrx_f[:, 2] - 0.5 * matrx_f[:, 1] ** 2 / matrx_f[:, 0]))
                         / matrx_f[:, 0]) ** 0.5)
             a_matrx[0] = a_matrx[1]
@@ -301,7 +337,7 @@ class DiffSchemes:
         a_matrx = det_a_matrx(matrx_f)
         # velocity
         def det_u_matrx(matrx_f):
-            u_matrx = np.zeros(len(self.x) + 2)
+            u_matrx = np.zeros(len(self.x) + 2) # -1 to l
             u_matrx[1: -1] = matrx_f[:, 1] / matrx_f[:, 0]
             u_matrx[0] = u_matrx[1]
             u_matrx[-1] = u_matrx[-2]
@@ -323,6 +359,19 @@ class DiffSchemes:
         A[:, 2, 1] = -1.5 * (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 + gamma * matrx_f[:, 2] / matrx_f[:, 0]
         A[:, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]
         return A
+
+    def _get_flux_basic(self, matrx_f_gene):
+        gamma = self.gamma
+        rho_matrx = matrx_f_gene[:, 0]
+        m_matrx = matrx_f_gene[:, 1]
+        epsilon_matrx = matrx_f_gene[:, 2]
+        F_matrx = np.zeros([len(self.x) + 2, 3])
+        F_matrx[1:-1, 0] = matrx_f_gene[:, 1]
+        F_matrx[1:-1, 1] = m_matrx ** 2 / rho_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx)
+        F_matrx[1:-1, 2] = (m_matrx / rho_matrx) * (epsilon_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx))
+        F_matrx[0] = F_matrx[1]
+        F_matrx[-1] = F_matrx[-2]
+        return F_matrx
 
     def lax_wendroff(self, t_plot):
         # scheme parameters
@@ -395,20 +444,13 @@ class DiffSchemes:
         matrx[:, 0] = rho_u_p[:, 0]
         matrx[:, 1] = rho_u_p[:, 0] * rho_u_p[:, 1]
         matrx[:, 2] = (rho_u_p[:, 2] / (gamma - 1)) + 0.5 * rho_u_p[:, 0] * rho_u_p[:, 1] ** 2
-        matrx_f = matrx.copy()
-
-        # Define Jacobian A ${\part F\over\part U}$
-        A = self._1d_eulerian_A(matrx_f)
 
         # Flux generator
-        def F_gene(matrx_f):
+        def F_gene(matrx_f_gene):
             # u and a (speed of sound) array
-            u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f)
+            u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f_gene)
             # The basic flux
-            F_matrx = np.zeros([len(self.x) + 2, 3])
-            F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, matrx_f)
-            F_matrx[0] = F_matrx[1]
-            F_matrx[-1] = F_matrx[-2]
+            F_matrx = self._get_flux_basic(matrx_f_gene)
             # basic half-node flux
             F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])
             # artificial viscosity added
@@ -416,17 +458,18 @@ class DiffSchemes:
             a_abs = np.abs(a_matrx)
             # expanded matrx
             matrx_expand = np.zeros([len(self.x) + 2, 3])
-            matrx_expand[1:-1] = matrx_f
+            matrx_expand[1:-1] = matrx_f_gene
             matrx_expand[0] = matrx_expand[1]
             matrx_expand[-1] = matrx_expand[-2]
             # artificial viscosity
-            vis_matrx = -0.25 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:]) * (matrx_expand[1:] - matrx_expand[:-1])
+            lambda_max = np.maximum(u_abs[:-1] + a_abs[:-1], u_abs[1:] + a_abs[1:])
+            vis_matrx = -0.5 * lambda_max * (matrx_expand[1:] - matrx_expand[:-1])
             # final half-node flux
             F_half += vis_matrx
             return F_half
 
         # compute and plot
-        self._1d_3vec_eulerian_rk4(matrx, F_gene, scheme, t_plot)
+        self._1d_3vec_eulerian_explicit(matrx, F_gene, scheme, t_plot)
         return 0
 
     def jameson(self, t_plot, k_2 = 0.55, k_4 = 1 / 100):
@@ -438,45 +481,39 @@ class DiffSchemes:
         matrx[:, 0] = rho_u_p[:, 0]
         matrx[:, 1] = rho_u_p[:, 0] * rho_u_p[:, 1]
         matrx[:, 2] = (rho_u_p[:, 2] / (gamma - 1)) + 0.5 * rho_u_p[:, 0] * rho_u_p[:, 1] ** 2
-        matrx_f = matrx.copy()
-
-        # Define Jacobian A ${\part F\over\part U}$
-        A = self._1d_eulerian_A(matrx_f)
 
         # Flux generator
-        def F_gene(matrx_f):
+        def F_gene(matrx_f_gene):
             # u (velocity) and a (speed of sound) array
-            u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f)
+            u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f_gene)   # -1 to l
             # The basic flux
-            F_matrx = np.zeros([len(self.x) + 2, 3])
-            F_matrx[1:-1] = np.einsum('ijk, ik-> ij', A, matrx_f)
-            F_matrx[0] = F_matrx[1]
-            F_matrx[-1] = F_matrx[-2]
+            F_matrx = self._get_flux_basic(matrx_f_gene)
             # basic half-node flux
-            F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])
+            F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:]) # -1 to l-1
             # artificial viscosity added
             u_abs = np.abs(u_matrx)
-            a_abs = np.abs(a_matrx)
-            p_matrx = np.zeros(len(self.x) + 6)
-            p_matrx[3:-3] = (gamma - 1) * (matrx_f[:, 2] - 0.5 * matrx_f[:, 1] ** 2 / matrx_f[:, 0])
+            a_abs = np.abs(a_matrx) # -1 to l
+            p_matrx = np.zeros(len(self.x) + 6) # -3 to l+2
+            p_matrx[3:-3] = (gamma - 1) * (matrx_f_gene[:, 2] - 0.5 * matrx_f_gene[:, 1] ** 2 / matrx_f_gene[:, 0])
             p_matrx[0] = p_matrx[1] = p_matrx[2] = p_matrx[3]
             p_matrx[-1] = p_matrx[-2] = p_matrx[-3] = p_matrx[-4]
-            # viscous parameter $\varepsilon_2$
+            # viscous parameter $\varepsilon_2$ (-2 to l+1)
             nu_matrx = np.abs(p_matrx[2:] - 2 * p_matrx[1:-1] + p_matrx[:-2]) / np.abs(p_matrx[2:] + 2 * p_matrx[1:-1] + p_matrx[:-2])
             # print(f'nu_matrx shape = {nu_matrx.shape}')
             windows = np.lib.stride_tricks.sliding_window_view(nu_matrx, window_shape=4)
-            e2_matrx = k_2 * np.max(windows, axis=1)
+            e2_matrx = k_2 * np.max(windows, axis=1)    # -1 to l-1
             e2_matrx = e2_matrx[:, np.newaxis]
             e4_matrx = np.maximum(0, k_4 - e2_matrx)
-            # expanded matrx
+            # expanded matrx (from -2 to l+1)
             matrx_expand = np.zeros([len(self.x) + 4, 3])
-            matrx_expand[2:-2] = matrx_f
+            matrx_expand[2:-2] = matrx_f_gene
             matrx_expand[0] = matrx_expand[1] = matrx_expand[2]
             matrx_expand[-1] = matrx_expand[-2] = matrx_expand[-3]
             # lambda_max and artificial viscosity
-            lambda_max = 0.5 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:])
-            vis_matrx_2 = -e2_matrx * lambda_max * (matrx_expand[2:-1] - matrx_expand[1:-2])
-            vis_matrx_4 = e4_matrx * lambda_max * (matrx_expand[3:] - 3 * matrx_expand[2:-1] + 3 * matrx_expand[1:-2] - matrx_expand[:-3])
+            # lambda_max = 0.5 * (u_abs[:-1] + a_abs[:-1] + u_abs[1:] + a_abs[1:])    # -1 to l-1
+            lambda_max = np.maximum(u_abs[:-1] + a_abs[:-1], u_abs[1:] + a_abs[1:])
+            vis_matrx_2 = -e2_matrx * lambda_max * (matrx_expand[2:-1] - matrx_expand[1:-2])    # -1 to l-1
+            vis_matrx_4 = e4_matrx * lambda_max * (matrx_expand[3:] - 3 * matrx_expand[2:-1] + 3 * matrx_expand[1:-2] - matrx_expand[:-3])  # -1 to l-1
             # final half-node flux
             F_half += (vis_matrx_2 + vis_matrx_4)
             return F_half

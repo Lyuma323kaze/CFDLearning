@@ -519,5 +519,5 @@ class DiffSchemes:
             return F_half
 
         # compute and plot
-        self._1d_3vec_eulerian_rk4(matrx, F_gene, scheme, t_plot, k_2 = k_2, k_4 = k_4)
+        self._1d_3vec_eulerian_explicit(matrx, F_gene, scheme, t_plot, k_2 = k_2, k_4 = k_4)
         return 0

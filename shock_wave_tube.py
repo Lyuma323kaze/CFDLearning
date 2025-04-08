@@ -20,8 +20,8 @@ dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
 
 # artificial viscosity parameters
-k2 = 1
-k4 = 0.01
+k2 = 3
+k4 = 0.1
 
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)

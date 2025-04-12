@@ -19,6 +19,7 @@ a = 1 # convective wave speed
 gamma = 1.4 # isentropic ratio
 dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
+epsilon = 2
 
 
 
@@ -41,5 +42,12 @@ def ini_condition_Expansion_shock(x):
         return np.array([1, 5 * np.sqrt(1.4), 1])
 
 
-item_SDO = DiffSchemes(name1, dt, dx, x_range, t_range1, gamma = gamma, c = c, ini_condi = ini_condition_SOD, folder = folder)
-item_expansion = DiffSchemes(name2, dt, dx, x_range, t_range1, gamma = gamma, c = c, ini_condi = ini_condition_Expansion_shock, folder = folder)
+item_SDO = DiffSchemes(name1, dt, dx, x_range, t_range1,
+                       gamma = gamma, c = c, ini_condi = ini_condition_SOD, folder = folder)
+item_expansion = DiffSchemes(name2, dt, dx, x_range, t_range1,
+                             gamma = gamma, c = c, ini_condi = ini_condition_Expansion_shock,
+                             folder = folder)
+
+item_SDO.roe(t_plot)
+item_expansion.roe(t_plot)
+item_expansion.roe(t_plot, entropy_fix = epsilon)

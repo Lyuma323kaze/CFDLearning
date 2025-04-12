@@ -373,6 +373,70 @@ class DiffSchemes:
         F_matrx[-1] = F_matrx[-2]
         return F_matrx
 
+    def _roe_average_values(self, ul_matrx, ur_matrx):
+        # ul, ur with shape (3,)
+        gamma = self.gamma
+        # return \rho, u, H, a
+        u_aver = np.zeros((len(self.x) + 1, 4))
+        # rho
+        u_aver[0] = np.sqrt(ul_matrx[:, 0] * ur_matrx[:, 0])
+        # u
+        u_aver[1] = ((ul_matrx[:, 1] / np.sqrt(ur_matrx[:, 0])) + (ur_matrx[:, 1] / np.sqrt(ur_matrx[:, 0]))
+                     / (np.sqrt(ul_matrx[:, 0]) + np.sqrt(ur_matrx[:, 0])))
+        # Hl and Hr
+        Hl = (ul_matrx[:, 2] + (gamma - 1) * (ul_matrx[:, 2] - ul_matrx[:, 1] ** 2 / ul_matrx[:, 0])) / ul_matrx[:, 0]
+        Hr = (ur_matrx[:, 2] + (gamma - 1) * (ur_matrx[:, 2] - ur_matrx[:, 1] ** 2 / ur_matrx[:, 0])) / ur_matrx[:, 0]
+        # H
+        u_aver[2] = (Hl * ul_matrx[:, 0] + Hr * ur_matrx[:, 0]) / (np.sqrt(ul_matrx[:, 0]) + np.sqrt(ur_matrx[:, 0]))
+        # a
+        u_aver[3] = (gamma - 1) * (u_aver[2] - 0.5 * u_aver[1] ** 2)
+
+        return u_aver
+
+    def _roe_R_matrix(self, u_aver):
+        u = u_aver[1]
+        H = u_aver[2]
+        a = u_aver[3]
+        R = np.zeros((len(self.x) + 1, 3, 3))
+        R[:, 0, :] = 1
+        R[:, 1, 0] = u - a
+        R[:, 2, 0] = H - u * a
+        R[:, 1, 1] = u
+        R[:, 2, 1] = 0.5 * u ** 2
+        R[:, 1, 2] = u + a
+        R[:, 2, 2] = H + u * a
+        return R
+
+    def _roe_lambda_at_L_at_delta_U(self, u_aver, ul_matrx, ur_matrx):
+        gamma = self.gamma
+        # roe average values
+        rho = u_aver[0]
+        u = u_aver[1]
+        H = u_aver[2]
+        a = u_aver[3]
+        # rho, u, p, of the field
+        rho_matrx_l = ul_matrx[:, 0]
+        rho_matrx_r = ur_matrx[:, 0]
+        u_matrx_l = ul_matrx[:, 1] / ul_matrx[:, 0]
+        u_matrx_r = ur_matrx[:, 1] / ur_matrx[:, 0]
+        p_matrx_l = (gamma - 1) * (ul_matrx[:, 2] - ul_matrx[:, 1] ** 2 / ul_matrx[:, 0])
+        p_matrx_r = (gamma - 1) * (ur_matrx[:, 2] - ur_matrx[:, 1] ** 2 / ur_matrx[:, 0])
+        delta_rho = rho_matrx_r - rho_matrx_l
+        delta_u = u_matrx_r - u_matrx_l
+        delta_p = p_matrx_r - p_matrx_l
+        # matrix |\Lambda|
+        lambda_matrx_abs = np.zeros((len(self.x) + 1, 3))
+        lambda_matrx_abs[:, 0] = np.abs(u - a)
+        lambda_matrx_abs[:, 1] = np.abs(u)
+        lambda_matrx_abs[:, 2] = np.abs(u + a)
+        # column matrix |\Lambda| @ L @ \Delta U
+        lambda_L_U = np.zeros((len(self.x) + 1, 3))
+        lambda_L_U[:, 0] = lambda_matrx_abs[:, 0] * (delta_p - rho * a * delta_u) / (2 * a ** 2)
+        lambda_L_U[:, 1] = lambda_matrx_abs[:, 1] * (delta_rho - delta_p / a ** 2)
+        lambda_L_U[:, 2] = lambda_matrx_abs[:, 2] * (delta_p + rho * a * delta_u) / (2 * a ** 2)
+
+        return lambda_L_U
+
     def lax_wendroff(self, t_plot):
         # scheme parameters
         scheme = 'Lax-Wendroff'
@@ -520,4 +584,30 @@ class DiffSchemes:
 
         # compute and plot
         self._1d_3vec_eulerian_explicit(matrx, F_gene, scheme, t_plot, k_2 = k_2, k_4 = k_4)
+        return 0
+
+    def roe(self, t_plot):
+        scheme = 'Roe'
+        gamma = self.gamma
+        matrx = np.zeros([len(self.x), 3])
+        rho_u_p = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        matrx[:, 0] = rho_u_p[:, 0]
+        matrx[:, 1] = rho_u_p[:, 0] * rho_u_p[:, 1]
+        matrx[:, 2] = (rho_u_p[:, 2] / (gamma - 1)) + 0.5 * rho_u_p[:, 0] * rho_u_p[:, 1] ** 2
+
+        # Flux generator
+        def F_gene(matrx_f_gene):
+            # u (velocity) and a (speed of sound) array
+            u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f_gene)  # -1 to l
+            # The basic flux
+            F_matrx = self._get_flux_basic(matrx_f_gene)
+            # basic half-node flux
+            F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])  # -1 to l-1
+
+
+
+            return F_half
+
+        # compute and plot
+        self._1d_3vec_eulerian_rk4(matrx, F_gene, scheme, t_plot)
         return 0

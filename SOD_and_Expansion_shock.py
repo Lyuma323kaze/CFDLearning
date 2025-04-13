@@ -19,7 +19,7 @@ a = 1 # convective wave speed
 gamma = 1.4 # isentropic ratio
 dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
-epsilon = 2
+epsilon = 1.8
 
 
 
@@ -48,6 +48,6 @@ item_expansion = DiffSchemes(name2, dt, dx, x_range, t_range1,
                              gamma = gamma, c = c, ini_condi = ini_condition_Expansion_shock,
                              folder = folder)
 
-item_SDO.roe(t_plot)
-item_expansion.roe(t_plot)
+# item_SDO.roe(t_plot)
+# item_expansion.roe(t_plot)
 item_expansion.roe(t_plot, entropy_fix = epsilon)

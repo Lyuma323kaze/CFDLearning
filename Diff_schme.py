@@ -93,9 +93,10 @@ class DiffSchemes:
             file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@mesh = {len(self.x)}')
             if k_2 is not None:
                 file_subfolder = os.path.join(file_subfolder, f'@k_2 = {k_2}@k_4 = {k_4}')
-
-            if not os.path.exists(file_subfolder):
-                os.makedirs(file_subfolder)
+            elif entropy_fix is not None:
+                file_subfolder = os.path.join(file_subfolder, f'@entropy_fix = {entropy_fix}')
+        if not os.path.exists(file_subfolder):
+            os.makedirs(file_subfolder)
 
         rho_subfolder = os.path.join(file_subfolder, 'rho')
         u_subfolder = os.path.join(file_subfolder, 'u')
@@ -112,7 +113,6 @@ class DiffSchemes:
         plt.title(fr"Solution of $\rho$ at Time={time:.3f},step = {int(time / self.dt)}")
         plt.xlabel("x")
         plt.ylabel(r"Density $\rho$")
-        plt.ylim(0, 4)
         plt.grid(True)
         plt.legend()
         file_path = os.path.join(rho_subfolder, f'Solution@rho at {time:.3f}.png')
@@ -124,7 +124,6 @@ class DiffSchemes:
         plt.title(fr"Solution of $u$ at Time={time:.3f},step = {int(time / self.dt)}")
         plt.xlabel("x")
         plt.ylabel(r"Velocity $u$")
-        plt.ylim(0, 4)
         plt.grid(True)
         plt.legend()
         file_path = os.path.join(u_subfolder, f'Solution@u at {time:.3f}.png')
@@ -136,7 +135,6 @@ class DiffSchemes:
         plt.title(fr"Solution of $p$ at Time={time:.3f},step = {int(time / self.dt)}")
         plt.xlabel("x")
         plt.ylabel(r"Velocity $p$")
-        plt.ylim(0, 4)
         plt.grid(True)
         plt.legend()
         file_path = os.path.join(p_subfolder, f'Solution@p at {time:.3f}.png')

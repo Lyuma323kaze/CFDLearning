@@ -13,12 +13,12 @@ t_terminate = 10
 
 
 # mesh parameters
-mx = 100    # mesh point number
+mx = 256    # mesh point number
 c = 0.3 # CFL number
 a = 1 # convective wave speed
 dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
-m = 15
+m = 5
 
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)
@@ -26,7 +26,8 @@ t_range = np.arange(0, t_terminate + dt, dt)
 t_plot = [0, 1, 5, 10.]
 
 # plot parameter
-y_lim = (0, 1.2)
+# y_lim = (0, 1.2)
+y_lim = None
 
 # initial condition
 def ini_condition(x, m = m):

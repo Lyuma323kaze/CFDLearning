@@ -344,6 +344,7 @@ class DiffSchemes:
         print(f'Space range: from {self.left_x} to {self.right_x}.')
         print('time interval:', self.dt)
         print('space interval:', self.dx)
+        print('\n')
         return 0
 
 
@@ -730,10 +731,11 @@ class DiffSchemes:
             F_matrx = self._get_1d_flux_basic(matrx_f_gene)
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
-            F_expand[4:-3] = F_matrx
+            F_expand[3:-3] = F_matrx
             for i in range(3):
-                F_expand[i] = F_expand[l-i]
-                F_expand[l+3+i] = F_expand[3+i]
+                F_expand[i] = F_matrx[l-3+i]
+                F_expand[-i-1] = F_matrx[2-i]
+
             # discretized \part f\over\part x
             F_part = a3 * (F_expand[: -6] + F_expand[6:])\
                      + a2 * (F_expand[1: -5] + F_expand[5:-1])\
@@ -768,10 +770,10 @@ class DiffSchemes:
             F_matrx = self._get_1d_flux_basic(matrx_f_gene)
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
-            F_expand[4:-3] = F_matrx
+            F_expand[3:-3] = F_matrx
             for i in range(3):
-                F_expand[i] = F_expand[l - i]
-                F_expand[l + 3 + i] = F_expand[3 + i]
+                F_expand[i] = F_matrx[l - 3 + i]
+                F_expand[-i-1] = F_matrx[2 - i]
             # discretized \part f\over\part x
             F_part = a3 * (F_expand[: -6] + F_expand[6:]) \
                      + a2 * (F_expand[1: -5] + F_expand[5:-1]) \
@@ -801,16 +803,16 @@ class DiffSchemes:
             # The basic flux (0 to l-1)
             F_matrx = self._get_1d_flux_basic(matrx_f_gene)
             # g_disp (-1 to l-1)
-            g_disp = 0.0464783
+            g_disp = 0.0463783
             # g_diss (-1 to l-1)
-            g_diss = 0.001
+            g_diss = 0.012
 
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
-            F_expand[4:-3] = F_matrx
+            F_expand[3:-3] = F_matrx
             for i in range(3):
-                F_expand[i] = F_expand[l - i]
-                F_expand[l + 3 + i] = F_expand[3 + i]
+                F_expand[i] = F_matrx[l - 3 + i]
+                F_expand[-i-1] = F_matrx[2 - i]
             # half_node flux (-1 to l-1)
             F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
                       + (-1.5 * g_disp - 2.5 * g_diss - 1 / 12) * F_expand[1: -4]
@@ -885,11 +887,16 @@ class DiffSchemes:
             expr = (np.abs(np.abs(S1 + S2) - np.abs(S1 - S2))
                     + np.abs(np.abs(S3 + S4) - np.abs(S3 - S4))
                     + np.abs(np.abs(C1 + C2) - 0.5 * np.abs(C1 - C2))
-                    + 2 * e) / (np.abs(S1 + S2) + np.abs(S1 - S2) + np.abs(S3 + S4) + np.abs(S3 - S4) + np.abs(C1 + C2) + np.abs(C1 - C2) + e)
+                    + 2 * e) / (np.abs(S1 + S2)
+                                + np.abs(S1 - S2)
+                                + np.abs(S3 + S4)
+                                + np.abs(S3 - S4)
+                                + np.abs(C1 + C2)
+                                + np.abs(C1 - C2) + e)
             k_esw = np.arccos(2 * (np.minimum(expr, 1)) - 1)
             # g_disp (-1 to l-1)
-            mask_p0 = (0 <= k_esw < 0.01)
-            mask_p1 = (0.01 <= k_esw < 2.5)
+            mask_p0 = (0 <= k_esw) & (k_esw < 0.01)
+            mask_p1 = (0.01 <= k_esw) & (k_esw < 2.5)
             g_disp_ = 0.1985842 * np.ones(len(self.x))
             expr_disp = (k_esw
                          + np.sin(2 * k_esw) / 6
@@ -900,21 +907,21 @@ class DiffSchemes:
             g_disp[1:] = g_disp_
             g_disp[0] = g_disp_[-1]
             # g_diss (-1 to l-1)
-            mask_s0 = (0 <= k_esw <= 1)
+            mask_s0 = (0 <= k_esw) & (k_esw <= 1)
             g_diss_ = 0.001 * np.ones(len(self.x))
-            expr_diss = np.min(0.012,
-                               0.001 + 0.011 * np.sqrt((k_esw - 1) / (np.pi - 1)))
-            g_diss_[~mask_s0] = expr_diss[~mask_s0]
+            expr_diss = np.minimum(0.012,
+                               0.001 + 0.011 * np.sqrt((k_esw[~mask_s0] - 1) / (np.pi - 1)))
+            g_diss_[~mask_s0] = expr_diss
             g_diss = np.zeros(l + 1)
             g_diss[1:] = g_diss_
             g_diss[0] = g_diss_[-1]
 
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
-            F_expand[4:-3] = F_matrx
+            F_expand[3:-3] = F_matrx
             for i in range(3):
-                F_expand[i] = F_expand[l-i]
-                F_expand[l+3+i] = F_expand[3+i]
+                F_expand[i] = F_matrx[l - 3 + i]
+                F_expand[-i - 1] = F_matrx[2 - i]
             # half_node flux (-1 to l-1)
             F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
                       + (-1.5 * g_disp - 2.5 * g_diss - 1/12) * F_expand[1: -4]

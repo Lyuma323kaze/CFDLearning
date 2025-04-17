@@ -17,6 +17,7 @@ c = 0.5 # CFL number
 a = 1 # convective wave speed
 dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
+gamma = 1.4
 
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)

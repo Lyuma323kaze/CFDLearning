@@ -739,16 +739,56 @@ class DiffSchemes:
                      + a2 * (F_expand[1: -5] + F_expand[5:-1])\
                      + a1 * (F_expand[2: -4] + F_expand[4:-2])\
                      + a0 * F_expand[3: -3]
+
             return F_part
 
         # compute and plot
         self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim)
         return 0
 
-    def drp_m(self, t_plot, ylim = None):
+    def drp_m(self, t_plot, ylim = None, Re_a = 0.2):
         scheme = 'DRP-M'
-        gamma = self.gamma
-        return
+        matrx = np.zeros(len(self.x))
+        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        l = len(matrx)
+        # global parameters
+        a0 = 0
+        a1 = 0.79926643
+        a2 = -0.18941314
+        a3 = 0.02651995
+        nu_a_x = self.a / Re_a
+        c0 = 0.327698660846
+        c1 = -0.235718815308
+        c2 = 0.086150669577
+        c3 = -0.014281184692
+
+        # Flux generator
+        def F_part_gene(matrx_f_gene):
+            # The basic flux (0 to l-1)
+            F_matrx = self._get_1d_flux_basic(matrx_f_gene)
+            # expanded basic flux (-3 to l+2)
+            F_expand = np.zeros(len(self.x) + 6)
+            F_expand[4:-3] = F_matrx
+            for i in range(3):
+                F_expand[i] = F_expand[l - i]
+                F_expand[l + 3 + i] = F_expand[3 + i]
+            # discretized \part f\over\part x
+            F_part = a3 * (F_expand[: -6] + F_expand[6:]) \
+                     + a2 * (F_expand[1: -5] + F_expand[5:-1]) \
+                     + a1 * (F_expand[2: -4] + F_expand[4:-2]) \
+                     + a0 * F_expand[3: -3]
+            # viscous term
+            F_vis = nu_a_x * (c3 * (F_expand[: -6] + F_expand[6:])
+                     + c2 * (F_expand[1: -5] + F_expand[5:-1])
+                     + c1 * (F_expand[2: -4] + F_expand[4:-2])
+                     + c0 * F_expand[3: -3])
+            # fianl
+            F_part += F_vis
+            return F_part
+
+        # compute and plot
+        self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim)
+        return 0
 
     def mdcd(self, t_plot, ylim = None):
         scheme = 'MDCD'
@@ -756,85 +796,14 @@ class DiffSchemes:
         matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
         l = len(matrx)
 
-        # The coefficient matrix of S1 to C2
-        co_matrx_S1 = np.zeros([len(self.x), len(self.x)])
-        co_matrx_S2 = np.zeros([len(self.x), len(self.x)])
-        co_matrx_S3 = np.zeros([len(self.x), len(self.x)])
-        co_matrx_S4 = np.zeros([len(self.x), len(self.x)])
-        co_matrx_C1 = np.zeros([len(self.x), len(self.x)])
-        co_matrx_C2 = np.zeros([len(self.x), len(self.x)])
-        # S1
-        for i in range(len(self.x)):
-            co_matrx_S1[i, i] = -2
-            co_matrx_S1[i, i + 1 - ((i + 1) // l) * l] = 1
-            co_matrx_S1[i, i - 1] = 1
-        # S2
-        for i in range(len(self.x)):
-            co_matrx_S2[i, i] = -2
-            co_matrx_S2[i, i + 2 - ((i + 2) // l) * l] = 1
-            co_matrx_S2[i, i - 2] = 1
-        co_matrx_S2 = co_matrx_S2 * 0.25
-        # S3
-        for i in range(len(self.x)):
-            co_matrx_S3[i, i] = 1
-            co_matrx_S3[i, i + 1 - ((i + 1) // l) * l] = -2
-            co_matrx_S3[i, i + 2 - ((i + 2) // l) * l] = 1
-        # S4
-        for i in range(len(self.x)):
-            co_matrx_S4[i, i - 1] = 1
-            co_matrx_S4[i, i + 1 - ((i + 1) // l) * l] = -2
-            co_matrx_S4[i, i + 3 - ((i + 3) // l) * l] = 1
-        co_matrx_S4 = co_matrx_S4 * 0.25
-        # C1
-        for i in range(len(self.x)):
-            co_matrx_C1[i, i] = -1
-            co_matrx_C1[i, i + 1 - ((i + 1) // l) * l] = 1
-        # C2
-        for i in range(len(self.x)):
-            co_matrx_C2[i, i + 2 - ((i + 2) // l) * l] = 1
-            co_matrx_C2[i, i - 1] = -1
-        co_matrx_C2 = co_matrx_C2 / 3
-
         # Flux generator
         def F_gene(matrx_f_gene):
             # The basic flux (0 to l-1)
             F_matrx = self._get_1d_flux_basic(matrx_f_gene)
-            # 0 to l-1
-            S1 = np.einsum('ij, j->i', co_matrx_S1, F_matrx)
-            S2 = np.einsum('ij, j->i', co_matrx_S2, F_matrx)
-            S3 = np.einsum('ij, j->i', co_matrx_S3, F_matrx)
-            S4 = np.einsum('ij, j->i', co_matrx_S4, F_matrx)
-            C1 = np.einsum('ij, j->i', co_matrx_C1, F_matrx)
-            C2 = np.einsum('ij, j->i', co_matrx_C2, F_matrx)
-            # k_esw (0 to l-1)
-            e = 1e-8
-            expr = (np.abs(np.abs(S1 + S2) - np.abs(S1 - S2))
-                    + np.abs(np.abs(S3 + S4) - np.abs(S3 - S4))
-                    + np.abs(np.abs(C1 + C2) - 0.5 * np.abs(C1 - C2))
-                    + 2 * e) / (np.abs(S1 + S2) + np.abs(S1 - S2) + np.abs(S3 + S4) + np.abs(S3 - S4) + np.abs(
-                C1 + C2) + np.abs(C1 - C2) + e)
-            k_esw = np.arccos(2 * (np.minimum(expr, 1)) - 1)
             # g_disp (-1 to l-1)
-            mask_p0 = (0 <= k_esw < 0.01)
-            mask_p1 = (0.01 <= k_esw < 2.5)
-            g_disp_ = 0.1985842 * np.ones(len(self.x))
-            expr_disp = (k_esw
-                         + np.sin(2 * k_esw) / 6
-                         - 4 * np.sin(k_esw) / 3) / (np.sin(3 * k_esw) - 4 * np.sin(2 * k_esw) + 5 * np.sin(k_esw))
-            g_disp_[mask_p0] = 1 / 30
-            g_disp_[mask_p1] = expr_disp[mask_p1]
-            g_disp = np.zeros(l + 1)
-            g_disp[1:] = g_disp_
-            g_disp[0] = g_disp_[-1]
+            g_disp = 0.0464783
             # g_diss (-1 to l-1)
-            mask_s0 = (0 <= k_esw <= 1)
-            g_diss_ = 0.001 * np.ones(len(self.x))
-            expr_diss = np.min(0.012,
-                               0.001 + 0.011 * np.sqrt((k_esw - 1) / (np.pi - 1)))
-            g_diss_[~mask_s0] = expr_diss[~mask_s0]
-            g_diss = np.zeros(l + 1)
-            g_diss[1:] = g_diss_
-            g_diss[0] = g_diss_[-1]
+            g_diss = 0.001
 
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)

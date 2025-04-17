@@ -3,6 +3,9 @@ import matplotlib.pyplot as plt
 # import time, sys
 import os
 
+from botocore.httpsession import mask_proxy_url
+
+
 # Saving folder
 
 
@@ -15,6 +18,7 @@ class DiffSchemes:
         self.gamma = gamma
         self.x = x
         self.t = t
+        self.a = self.c * self.dx / self.dt
         self.init_condition = ini_condi
         self.bound_condition = bnd_condi
         self.name = name
@@ -44,7 +48,7 @@ class DiffSchemes:
         plt.close()
 
     def _plot_cfl(self, result, time, scheme,
-                  mesh = None, cfl = True, k_2 = None, k_4 = None):
+                  mesh = None, cfl = True, k_2 = None, k_4 = None, ylim = None):
         if not os.path.exists(self.file_folder):
             os.makedirs(self.file_folder)
         file_folder = self.file_folder
@@ -66,7 +70,10 @@ class DiffSchemes:
         plt.title(f"Solution at Time={time:.3f},step = {int(time / self.dt)}")
         plt.xlabel("x")
         plt.ylabel("Temperature")
-        plt.ylim(0, 3.3)
+        if ylim is not None:
+            plt.ylim(ylim)
+        else:
+            plt.ylim(0, 3.3)
         plt.grid(True)
         plt.legend()
         file_path = os.path.join(file_subfolder, f'Solution at {time:.3f}.png')
@@ -286,6 +293,60 @@ class DiffSchemes:
         print('space interval:', self.dx)
         return matrx
 
+    def _1d_1vec_conserv_rk4(self,
+                             matrx_ini,
+                             F_gene: callable,
+                             scheme: str,
+                             t_plot,
+                             mesh=True,
+                             k_2=None,
+                             k_4=None,
+                             ylim=None):
+        matrx = matrx_ini.copy()
+        t_x = self.dt / self.dx
+
+        # discrete \part f\over\part x
+        def F_part_gene(matrx_gene):
+            F_half = F_gene(matrx_gene)
+            F_part = F_half[1:] - F_half[:-1]
+            return F_part
+
+        self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot,
+                          mesh = mesh, k_2 = k_2, k_4 = k_4, ylim = ylim)
+        return 0
+
+    def _1d_1vec_rk4(self,
+                     matrx_ini,
+                     F_part_gene: callable,
+                     scheme: str,
+                     t_plot,
+                     mesh=True,
+                     k_2=None,
+                     k_4=None,
+                     ylim=None):
+        matrx = matrx_ini.copy()
+        t_x = self.dt / self.dx
+        for i in range(1, len(self.t)):
+            matrx_f = matrx.copy()
+            F_part = F_part_gene(matrx_f)  # -1 to l-1
+            matrx_1 = matrx_f - 0.25 * t_x * F_part
+            F_part_1 = F_part_gene(matrx_1)
+            matrx_2 = matrx_f - t_x * F_part_1 / 3
+            F_part_2 = F_part_gene(matrx_2)
+            matrx_3 = matrx_f - 0.5 * t_x * F_part_2
+            F_part_3 = F_part_gene(matrx_3)
+            matrx = matrx_f - t_x * F_part_3
+            for time in t_plot:
+                if self.t[i] <= time < self.t[i + 1]:
+                    self._plot_cfl(matrx, time, scheme,
+                                   cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, ylim=ylim)
+        print(f'case: {self.name}, scheme: {scheme}')
+        print(f'Space range: from {self.left_x} to {self.right_x}.')
+        print('time interval:', self.dt)
+        print('space interval:', self.dx)
+        return 0
+
+
     def _1d_3vec_eulerian_explicit(self,
                                    matrx_ini,
                                    F_gene: callable,
@@ -377,7 +438,7 @@ class DiffSchemes:
         A[:, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]
         return A
 
-    def _get_flux_basic(self, matrx_f_gene):
+    def _get_3d_flux_basic(self, matrx_f_gene):
         gamma = self.gamma
         rho_matrx = matrx_f_gene[:, 0]
         m_matrx = matrx_f_gene[:, 1]
@@ -388,6 +449,10 @@ class DiffSchemes:
         F_matrx[1:-1, 2] = (m_matrx / rho_matrx) * (epsilon_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx))
         F_matrx[0] = F_matrx[1]
         F_matrx[-1] = F_matrx[-2]
+        return F_matrx
+
+    def _get_1d_flux_basic(self, matrx_f_gene):
+        F_matrx = self.a * matrx_f_gene
         return F_matrx
 
     def _roe_average_values(self, ul_matrx, ur_matrx):
@@ -539,7 +604,7 @@ class DiffSchemes:
             # u and a (speed of sound) array
             u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f_gene)
             # The basic flux
-            F_matrx = self._get_flux_basic(matrx_f_gene)
+            F_matrx = self._get_3d_flux_basic(matrx_f_gene)
             # basic half-node flux
             F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])
             # artificial viscosity added
@@ -576,7 +641,7 @@ class DiffSchemes:
             # u (velocity) and a (speed of sound) array
             u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f_gene)   # -1 to l
             # The basic flux
-            F_matrx = self._get_flux_basic(matrx_f_gene)
+            F_matrx = self._get_3d_flux_basic(matrx_f_gene)
             # basic half-node flux
             F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:]) # -1 to l-1
             # artificial viscosity added
@@ -623,7 +688,7 @@ class DiffSchemes:
         # Flux generator
         def F_gene(matrx_f_gene):
             # The basic flux
-            F_matrx = self._get_flux_basic(matrx_f_gene)
+            F_matrx = self._get_3d_flux_basic(matrx_f_gene)
             # basic half-node flux
             F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])  # -1 to l-1
             # expanded matrx (from -1 to l)
@@ -646,4 +711,250 @@ class DiffSchemes:
 
         # compute and plot
         self._1d_3vec_eulerian_rk4(matrx, F_gene, scheme, t_plot, entropy_fix = entropy_fix)
+        return 0
+
+    def drp(self, t_plot, ylim = None):
+        scheme = 'DRP'
+        matrx = np.zeros(len(self.x))
+        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        l = len(matrx)
+        # global parameters
+        a0 = 0
+        a1 = 0.79926643
+        a2 = -0.18941314
+        a3 = 0.02651995
+
+        # Flux generator
+        def F_part_gene(matrx_f_gene):
+            # The basic flux (0 to l-1)
+            F_matrx = self._get_1d_flux_basic(matrx_f_gene)
+            # expanded basic flux (-3 to l+2)
+            F_expand = np.zeros(len(self.x) + 6)
+            F_expand[4:-3] = F_matrx
+            for i in range(3):
+                F_expand[i] = F_expand[l-i]
+                F_expand[l+3+i] = F_expand[3+i]
+            # discretized \part f\over\part x
+            F_part = a3 * (F_expand[: -6] + F_expand[6:])\
+                     + a2 * (F_expand[1: -5] + F_expand[5:-1])\
+                     + a1 * (F_expand[2: -4] + F_expand[4:-2])\
+                     + a0 * F_expand[3: -3]
+            return F_part
+
+        # compute and plot
+        self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim)
+        return 0
+
+    def drp_m(self, t_plot, ylim = None):
+        scheme = 'DRP-M'
+        gamma = self.gamma
+        return
+
+    def mdcd(self, t_plot, ylim = None):
+        scheme = 'MDCD'
+        matrx = np.zeros(len(self.x))
+        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        l = len(matrx)
+
+        # The coefficient matrix of S1 to C2
+        co_matrx_S1 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_S2 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_S3 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_S4 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_C1 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_C2 = np.zeros([len(self.x), len(self.x)])
+        # S1
+        for i in range(len(self.x)):
+            co_matrx_S1[i, i] = -2
+            co_matrx_S1[i, i + 1 - ((i + 1) // l) * l] = 1
+            co_matrx_S1[i, i - 1] = 1
+        # S2
+        for i in range(len(self.x)):
+            co_matrx_S2[i, i] = -2
+            co_matrx_S2[i, i + 2 - ((i + 2) // l) * l] = 1
+            co_matrx_S2[i, i - 2] = 1
+        co_matrx_S2 = co_matrx_S2 * 0.25
+        # S3
+        for i in range(len(self.x)):
+            co_matrx_S3[i, i] = 1
+            co_matrx_S3[i, i + 1 - ((i + 1) // l) * l] = -2
+            co_matrx_S3[i, i + 2 - ((i + 2) // l) * l] = 1
+        # S4
+        for i in range(len(self.x)):
+            co_matrx_S4[i, i - 1] = 1
+            co_matrx_S4[i, i + 1 - ((i + 1) // l) * l] = -2
+            co_matrx_S4[i, i + 3 - ((i + 3) // l) * l] = 1
+        co_matrx_S4 = co_matrx_S4 * 0.25
+        # C1
+        for i in range(len(self.x)):
+            co_matrx_C1[i, i] = -1
+            co_matrx_C1[i, i + 1 - ((i + 1) // l) * l] = 1
+        # C2
+        for i in range(len(self.x)):
+            co_matrx_C2[i, i + 2 - ((i + 2) // l) * l] = 1
+            co_matrx_C2[i, i - 1] = -1
+        co_matrx_C2 = co_matrx_C2 / 3
+
+        # Flux generator
+        def F_gene(matrx_f_gene):
+            # The basic flux (0 to l-1)
+            F_matrx = self._get_1d_flux_basic(matrx_f_gene)
+            # 0 to l-1
+            S1 = np.einsum('ij, j->i', co_matrx_S1, F_matrx)
+            S2 = np.einsum('ij, j->i', co_matrx_S2, F_matrx)
+            S3 = np.einsum('ij, j->i', co_matrx_S3, F_matrx)
+            S4 = np.einsum('ij, j->i', co_matrx_S4, F_matrx)
+            C1 = np.einsum('ij, j->i', co_matrx_C1, F_matrx)
+            C2 = np.einsum('ij, j->i', co_matrx_C2, F_matrx)
+            # k_esw (0 to l-1)
+            e = 1e-8
+            expr = (np.abs(np.abs(S1 + S2) - np.abs(S1 - S2))
+                    + np.abs(np.abs(S3 + S4) - np.abs(S3 - S4))
+                    + np.abs(np.abs(C1 + C2) - 0.5 * np.abs(C1 - C2))
+                    + 2 * e) / (np.abs(S1 + S2) + np.abs(S1 - S2) + np.abs(S3 + S4) + np.abs(S3 - S4) + np.abs(
+                C1 + C2) + np.abs(C1 - C2) + e)
+            k_esw = np.arccos(2 * (np.minimum(expr, 1)) - 1)
+            # g_disp (-1 to l-1)
+            mask_p0 = (0 <= k_esw < 0.01)
+            mask_p1 = (0.01 <= k_esw < 2.5)
+            g_disp_ = 0.1985842 * np.ones(len(self.x))
+            expr_disp = (k_esw
+                         + np.sin(2 * k_esw) / 6
+                         - 4 * np.sin(k_esw) / 3) / (np.sin(3 * k_esw) - 4 * np.sin(2 * k_esw) + 5 * np.sin(k_esw))
+            g_disp_[mask_p0] = 1 / 30
+            g_disp_[mask_p1] = expr_disp[mask_p1]
+            g_disp = np.zeros(l + 1)
+            g_disp[1:] = g_disp_
+            g_disp[0] = g_disp_[-1]
+            # g_diss (-1 to l-1)
+            mask_s0 = (0 <= k_esw <= 1)
+            g_diss_ = 0.001 * np.ones(len(self.x))
+            expr_diss = np.min(0.012,
+                               0.001 + 0.011 * np.sqrt((k_esw - 1) / (np.pi - 1)))
+            g_diss_[~mask_s0] = expr_diss[~mask_s0]
+            g_diss = np.zeros(l + 1)
+            g_diss[1:] = g_diss_
+            g_diss[0] = g_diss_[-1]
+
+            # expanded basic flux (-3 to l+2)
+            F_expand = np.zeros(len(self.x) + 6)
+            F_expand[4:-3] = F_matrx
+            for i in range(3):
+                F_expand[i] = F_expand[l - i]
+                F_expand[l + 3 + i] = F_expand[3 + i]
+            # half_node flux (-1 to l-1)
+            F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
+                      + (-1.5 * g_disp - 2.5 * g_diss - 1 / 12) * F_expand[1: -4]
+                      + (g_disp + 5 * g_diss + 7 / 12) * F_expand[2: -3]
+                      + (g_disp - 5 * g_diss + 7 / 12) * F_expand[3: -2]
+                      + (-1.5 * g_disp + 2.5 * g_diss - 1 / 12) * F_expand[4: -1]
+                      + (0.5 * g_disp - 0.5 * g_diss) * F_expand[5:])
+            return F_half  # -1 to l-1
+
+        # compute and plot
+        self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim=ylim)
+        return 0
+
+    def sadrp(self, t_plot, ylim = None):
+        scheme = 'SA-DRP'
+        matrx = np.zeros(len(self.x))
+        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        l = len(matrx)
+
+        # The coefficient matrix of S1 to C2
+        co_matrx_S1 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_S2 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_S3 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_S4 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_C1 = np.zeros([len(self.x), len(self.x)])
+        co_matrx_C2 = np.zeros([len(self.x), len(self.x)])
+        # S1
+        for i in range(len(self.x)):
+            co_matrx_S1[i, i] = -2
+            co_matrx_S1[i, i+1 - ((i+1) // l) * l] = 1
+            co_matrx_S1[i, i - 1] = 1
+        # S2
+        for i in range(len(self.x)):
+            co_matrx_S2[i, i] = -2
+            co_matrx_S2[i, i+2 - ((i+2) // l) * l] = 1
+            co_matrx_S2[i, i - 2] = 1
+        co_matrx_S2 = co_matrx_S2 * 0.25
+        # S3
+        for i in range(len(self.x)):
+            co_matrx_S3[i, i] = 1
+            co_matrx_S3[i, i+1 - ((i+1) // l) * l] = -2
+            co_matrx_S3[i, i+2 - ((i+2) // l) * l] = 1
+        # S4
+        for i in range(len(self.x)):
+            co_matrx_S4[i, i - 1] = 1
+            co_matrx_S4[i, i+1 - ((i+1) // l) * l] = -2
+            co_matrx_S4[i, i+3 - ((i+3) // l) * l] = 1
+        co_matrx_S4 = co_matrx_S4 * 0.25
+        # C1
+        for i in range(len(self.x)):
+            co_matrx_C1[i, i] = -1
+            co_matrx_C1[i, i+1 - ((i+1) // l) * l] = 1
+        # C2
+        for i in range(len(self.x)):
+            co_matrx_C2[i, i+2 - ((i+2) // l) * l] = 1
+            co_matrx_C2[i, i - 1] = -1
+        co_matrx_C2 = co_matrx_C2 / 3
+
+        # Flux generator
+        def F_gene(matrx_f_gene):
+            # The basic flux (0 to l-1)
+            F_matrx = self._get_1d_flux_basic(matrx_f_gene)
+            # 0 to l-1
+            S1 = np.einsum('ij, j->i', co_matrx_S1, F_matrx)
+            S2 = np.einsum('ij, j->i', co_matrx_S2, F_matrx)
+            S3 = np.einsum('ij, j->i', co_matrx_S3, F_matrx)
+            S4 = np.einsum('ij, j->i', co_matrx_S4, F_matrx)
+            C1 = np.einsum('ij, j->i', co_matrx_C1, F_matrx)
+            C2 = np.einsum('ij, j->i', co_matrx_C2, F_matrx)
+            # k_esw (0 to l-1)
+            e = 1e-8
+            expr = (np.abs(np.abs(S1 + S2) - np.abs(S1 - S2))
+                    + np.abs(np.abs(S3 + S4) - np.abs(S3 - S4))
+                    + np.abs(np.abs(C1 + C2) - 0.5 * np.abs(C1 - C2))
+                    + 2 * e) / (np.abs(S1 + S2) + np.abs(S1 - S2) + np.abs(S3 + S4) + np.abs(S3 - S4) + np.abs(C1 + C2) + np.abs(C1 - C2) + e)
+            k_esw = np.arccos(2 * (np.minimum(expr, 1)) - 1)
+            # g_disp (-1 to l-1)
+            mask_p0 = (0 <= k_esw < 0.01)
+            mask_p1 = (0.01 <= k_esw < 2.5)
+            g_disp_ = 0.1985842 * np.ones(len(self.x))
+            expr_disp = (k_esw
+                         + np.sin(2 * k_esw) / 6
+                         - 4 * np.sin(k_esw) / 3) / (np.sin(3 * k_esw) - 4 * np.sin(2 * k_esw) + 5 * np.sin(k_esw))
+            g_disp_[mask_p0] = 1 / 30
+            g_disp_[mask_p1] = expr_disp[mask_p1]
+            g_disp = np.zeros(l + 1)
+            g_disp[1:] = g_disp_
+            g_disp[0] = g_disp_[-1]
+            # g_diss (-1 to l-1)
+            mask_s0 = (0 <= k_esw <= 1)
+            g_diss_ = 0.001 * np.ones(len(self.x))
+            expr_diss = np.min(0.012,
+                               0.001 + 0.011 * np.sqrt((k_esw - 1) / (np.pi - 1)))
+            g_diss_[~mask_s0] = expr_diss[~mask_s0]
+            g_diss = np.zeros(l + 1)
+            g_diss[1:] = g_diss_
+            g_diss[0] = g_diss_[-1]
+
+            # expanded basic flux (-3 to l+2)
+            F_expand = np.zeros(len(self.x) + 6)
+            F_expand[4:-3] = F_matrx
+            for i in range(3):
+                F_expand[i] = F_expand[l-i]
+                F_expand[l+3+i] = F_expand[3+i]
+            # half_node flux (-1 to l-1)
+            F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
+                      + (-1.5 * g_disp - 2.5 * g_diss - 1/12) * F_expand[1: -4]
+                      + (g_disp + 5 * g_diss + 7/12) * F_expand[2: -3]
+                      + (g_disp - 5 * g_diss + 7/12) * F_expand[3: -2]
+                      + (-1.5 * g_disp + 2.5 * g_diss - 1/12) * F_expand[4: -1]
+                      + (0.5 * g_disp - 0.5 * g_diss) * F_expand[5:])
+            return F_half  # -1 to l-1
+
+        # compute and plot
+        self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim = ylim)
         return 0

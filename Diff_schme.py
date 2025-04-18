@@ -303,7 +303,6 @@ class DiffSchemes:
                              k_4=None,
                              ylim=None):
         matrx = matrx_ini.copy()
-        t_x = self.dt / self.dx
 
         # discrete \part f\over\part x
         def F_part_gene(matrx_gene):
@@ -732,14 +731,13 @@ class DiffSchemes:
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
             F_expand[3:-3] = F_matrx
-            for i in range(3):
-                F_expand[i] = F_matrx[l-3+i]
-                F_expand[-i-1] = F_matrx[2-i]
+            F_expand[:3] = F_matrx[-3:]
+            F_expand[-3:] = F_matrx[:3]
 
             # discretized \part f\over\part x
-            F_part = a3 * (F_expand[: -6] + F_expand[6:])\
-                     + a2 * (F_expand[1: -5] + F_expand[5:-1])\
-                     + a1 * (F_expand[2: -4] + F_expand[4:-2])\
+            F_part = a3 * (-F_expand[: -6] + F_expand[6:])\
+                     + a2 * (-F_expand[1: -5] + F_expand[5:-1])\
+                     + a1 * (-F_expand[2: -4] + F_expand[4:-2])\
                      + a0 * F_expand[3: -3]
 
             return F_part
@@ -758,7 +756,7 @@ class DiffSchemes:
         a1 = 0.79926643
         a2 = -0.18941314
         a3 = 0.02651995
-        nu_a_x = self.a / Re_a
+
         c0 = 0.327698660846
         c1 = -0.235718815308
         c2 = 0.086150669577
@@ -771,16 +769,15 @@ class DiffSchemes:
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
             F_expand[3:-3] = F_matrx
-            for i in range(3):
-                F_expand[i] = F_matrx[l - 3 + i]
-                F_expand[-i-1] = F_matrx[2 - i]
+            F_expand[:3] = F_matrx[-3:]
+            F_expand[-3:] = F_matrx[:3]
             # discretized \part f\over\part x
-            F_part = a3 * (F_expand[: -6] + F_expand[6:]) \
-                     + a2 * (F_expand[1: -5] + F_expand[5:-1]) \
-                     + a1 * (F_expand[2: -4] + F_expand[4:-2]) \
+            F_part = a3 * (-F_expand[: -6] + F_expand[6:]) \
+                     + a2 * (-F_expand[1: -5] + F_expand[5:-1]) \
+                     + a1 * (-F_expand[2: -4] + F_expand[4:-2]) \
                      + a0 * F_expand[3: -3]
             # viscous term
-            F_vis = nu_a_x * (c3 * (F_expand[: -6] + F_expand[6:])
+            F_vis = (1 / Re_a) * (c3 * (F_expand[: -6] + F_expand[6:])
                      + c2 * (F_expand[1: -5] + F_expand[5:-1])
                      + c1 * (F_expand[2: -4] + F_expand[4:-2])
                      + c0 * F_expand[3: -3])
@@ -810,9 +807,8 @@ class DiffSchemes:
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
             F_expand[3:-3] = F_matrx
-            for i in range(3):
-                F_expand[i] = F_matrx[l - 3 + i]
-                F_expand[-i-1] = F_matrx[2 - i]
+            F_expand[:3] = F_matrx[-3:]
+            F_expand[-3:] = F_matrx[:3]
             # half_node flux (-1 to l-1)
             F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
                       + (-1.5 * g_disp - 2.5 * g_diss - 1 / 12) * F_expand[1: -4]
@@ -919,9 +915,8 @@ class DiffSchemes:
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
             F_expand[3:-3] = F_matrx
-            for i in range(3):
-                F_expand[i] = F_matrx[l - 3 + i]
-                F_expand[-i - 1] = F_matrx[2 - i]
+            F_expand[:3] = F_matrx[-3:]
+            F_expand[-3:] = F_matrx[:3]
             # half_node flux (-1 to l-1)
             F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
                       + (-1.5 * g_disp - 2.5 * g_diss - 1/12) * F_expand[1: -4]

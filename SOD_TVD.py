@@ -26,7 +26,7 @@ k4 = 0.1
 
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)
-t_range1 = np.arange(0, t_terminate, dt)
+t_range1 = np.arange(0, t_terminate + dt, dt)
 t_plot = np.arange(0, t_terminate, 0.01)
 
 # initial condition
@@ -39,3 +39,6 @@ def ini_condition(x):
 item = DiffSchemes(name, dt, dx, x_range, t_range1, gamma = gamma, c = c, ini_condi = ini_condition, folder = folder)
 
 item.tvd_minmod(t_plot, entropy_fix = epsilon)
+# item.roe(t_plot, entropy_fix = epsilon)
+# item.rusanov(t_plot)
+# item.jameson(t_plot, k_2 = k2, k_4 = k4)

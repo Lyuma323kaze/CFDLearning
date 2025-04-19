@@ -449,6 +449,7 @@ class DiffSchemes:
 
         return lambda_L_U
 
+    # wrong expression of L
     def _roe_L_matrix(self, u_aver):
         gamma = self.gamma
         u = u_aver[:, 1]
@@ -463,6 +464,7 @@ class DiffSchemes:
         L[:, 2, 0] = 0.5 * (gamma - 1) * u ** 2 / a ** 2 - u / a
         L[:, 2, 1] = -((gamma - 1) * u / a ** 2 - 1 / a)
         L[:, 2, 2] = (gamma - 1) / a ** 2
+        L = 0.5 * L
         return L    # with shape (len(u_aver), 3, 3)
 
     def _roe_lambda_matrix(self, u_aver):
@@ -1092,7 +1094,8 @@ class DiffSchemes:
             uR_matrx = np.einsum('ijk,ik->ij', R, wr_matrx)'''
             # half_node matrx with minmod (-1 to l-1)
             F_half = 0.5 * (self._get_3d_flux_basic_local(uL_matrx) + self._get_3d_flux_basic_local(uR_matrx))
-            '''# second part by direct computation (-1 to l-1)
+            # second part by direct computation (-1 to l-1)
+            L_cut = L[:-1]  # -1 to l-1
             if entropy_fix is not None:
                 e = entropy_fix
                 Lambda_another = (np.abs(Lambda) ** 2 + e ** 2) / (2 * e)
@@ -1101,12 +1104,7 @@ class DiffSchemes:
             else:
                 R_lambda_abs = np.einsum('ijk,ikl->ijl', R, np.abs(Lambda))
             L_U_r_l = np.einsum('ijk,ik->ij', L_cut, uR_matrx - uL_matrx)
-            F_roe = -0.5 * np.einsum('ijk,ik->ij', R_lambda_abs, L_U_r_l)'''
-            # roe numerical flux
-            R = self._roe_R_matrix(roe_aver_values)[:-1]  # -1 to l-1
-            lam_L_U = self._roe_lambda_at_L_at_delta_U(roe_aver_values[:-1], ul_matrx[:-1], ur_matrx[:-1],
-                                                       entropy_fix=entropy_fix)
-            F_roe = - 0.5 * np.einsum('ijk,ik->ij', R, lam_L_U)
+            F_roe = -0.5 * np.einsum('ijk,ik->ij', R_lambda_abs, L_U_r_l)
             # final numerical flux
             F_half += F_roe
             return F_half  # -1 to l-1

@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 # import time, sys
 import os
 
+from sympy.physics.quantum.density import entropy
+
 
 # Saving folder
 
@@ -222,7 +224,7 @@ class DiffSchemes:
         print('\n')
         return 0
 
-    def _id_3vec_tvd_rk3(self,
+    def _1d_3vec_tvd_rk3(self,
                          matrx_ini,
                          F_gene: callable,
                          scheme: str,
@@ -238,9 +240,9 @@ class DiffSchemes:
             F_half = F_gene(matrx_f)
             matrx_1 = matrx_f - t_x * (F_half[1:] - F_half[:-1])
             F_half_1 = F_gene(matrx_1)
-            matrx_2 = 0.75 * matrx_f - 0.25 * t_x * (F_half_1[1:] - F_half_1[:-1]) / 3
+            matrx_2 = 0.75 * matrx_f + 0.25 * (matrx_1 - t_x * (F_half_1[1:] - F_half_1[:-1]))
             F_half_2 = F_gene(matrx_2)
-            matrx_3 = matrx_f / 3 - 2 * t_x * (F_half_2[1:] - F_half_2[:-1]) / 3
+            matrx_3 = matrx_f / 3 + 2 * (matrx_2 - t_x * (F_half_2[1:] - F_half_2[:-1])) / 3
             matrx = matrx_3
             for time in t_plot:
                 if self.t[i] <= time < self.t[i + 1]:
@@ -346,7 +348,7 @@ class DiffSchemes:
         A[:, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]
         return A
 
-    def _get_3d_flux_basic(self, matrx_f_gene):
+    def _get_3d_flux_basic_uniform(self, matrx_f_gene):
         gamma = self.gamma
         rho_matrx = matrx_f_gene[:, 0]
         m_matrx = matrx_f_gene[:, 1]
@@ -357,31 +359,29 @@ class DiffSchemes:
         F_matrx[1:-1, 2] = (m_matrx / rho_matrx) * (epsilon_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx))
         F_matrx[0] = F_matrx[1]
         F_matrx[-1] = F_matrx[-2]
-        return F_matrx
+        return F_matrx  # -1 to l
 
-    def _get_3d_flux_half(self, matrx_f_gene):
+    def _get_3d_flux_basic_local(self, matrx_f_gene):
         gamma = self.gamma
         rho_matrx = matrx_f_gene[:, 0]
         m_matrx = matrx_f_gene[:, 1]
         epsilon_matrx = matrx_f_gene[:, 2]
-        F_matrx = np.zeros([len(self.x) + 2, 3])
-        F_matrx[1:-1, 0] = matrx_f_gene[:, 1]
-        F_matrx[1:-1, 1] = m_matrx ** 2 / rho_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx)
-        F_matrx[1:-1, 2] = (m_matrx / rho_matrx) * (
+        F_matrx = np.zeros([len(matrx_f_gene), 3])
+        F_matrx[:, 0] = matrx_f_gene[:, 1]
+        F_matrx[:, 1] = m_matrx ** 2 / rho_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx)
+        F_matrx[:, 2] = (m_matrx / rho_matrx) * (
                     epsilon_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx))
-        F_matrx[0] = F_matrx[1]
-        F_matrx[-1] = F_matrx[-2]
-        return F_matrx
+        return F_matrx  # same shape with matrx_f_gene
 
     def _get_1d_flux_basic(self, matrx_f_gene):
         F_matrx = self.a * matrx_f_gene
         return F_matrx
 
     def _roe_average_values(self, ul_matrx, ur_matrx):
-        # ul, ur with shape (3,)
+        # ul_matrx, ur_matrx with shape (n,3)
         gamma = self.gamma
         # return \rho, u, H, a
-        u_aver = np.zeros((len(self.x) + 1, 4))
+        u_aver = np.zeros((len(ul_matrx), 4))
         # rho
         u_aver[:, 0] = np.sqrt(ul_matrx[:, 0] * ur_matrx[:, 0])
         # u
@@ -395,13 +395,13 @@ class DiffSchemes:
         # a
         u_aver[:, 3] = (gamma - 1) * (u_aver[:, 2] - 0.5 * u_aver[:, 1] ** 2)
 
-        return u_aver
+        return u_aver   # same length with ul_matrx, ur_matrx
 
     def _roe_R_matrix(self, u_aver):
         u = u_aver[:, 1]
         H = u_aver[:, 2]
         a = u_aver[:, 3]
-        R = np.zeros((len(self.x) + 1, 3, 3))
+        R = np.zeros((len(u_aver), 3, 3))
         R[:, 0, :] = 1
         R[:, 1, 0] = u - a
         R[:, 2, 0] = H - u * a
@@ -449,8 +449,66 @@ class DiffSchemes:
 
         return lambda_L_U
 
+    def _roe_L_matrix(self, u_aver):
+        gamma = self.gamma
+        u = u_aver[:, 1]
+        a = u_aver[:, 3]
+        L = np.zeros((len(self.x) + 2, 3, 3))
+        L[:, 0, 0] = 0.5 * (gamma - 1) * u ** 2 / a ** 2 + u / a
+        L[:, 0, 1] = -((gamma - 1) * u / a ** 2 + 1 / a)
+        L[:, 0, 2] = (gamma - 1) / a ** 2
+        L[:, 1, 0] = 2 - (gamma - 1) * u ** 2 / a ** 2
+        L[:, 1, 1] = 2 * (gamma - 1) * u / a ** 2
+        L[:, 1, 2] = -2 * (gamma - 1) / a ** 2
+        L[:, 2, 0] = 0.5 * (gamma - 1) * u ** 2 / a ** 2 - u / a
+        L[:, 2, 1] = -((gamma - 1) * u / a ** 2 - 1 / a)
+        L[:, 2, 2] = (gamma - 1) / a ** 2
+        return L    # with shape (len(u_aver), 3, 3)
+
+    def _roe_lambda_matrix(self, u_aver):
+        u = u_aver[:, 1]
+        a = u_aver[:, 3]
+        lambda_matrx = np.zeros((len(u_aver), 3, 3))
+        lambda_matrx[:, 0, 0] = u - a
+        lambda_matrx[:, 1, 1] = u
+        lambda_matrx[:, 2, 2] = u + a
+        return lambda_matrx
+
     def _minmod(self, matrx1, matrx2):
-        return 0.5 * (np.sign(matrx1) + np.sign(matrx2)) * np.minimum(np.abs(matrx1), np.abs(matrx2))
+        return 0.5 * (np.sign(matrx1) + np.sign(matrx2))\
+            * np.minimum(np.abs(matrx1), np.abs(matrx2))
+
+    def _tvd_delta_x_Dj(self, u_aver, ul_matrx, ur_matrx, uc_matrx):
+        gamma = self.gamma
+        # roe average values
+        rho = u_aver[:, 0]
+        u = u_aver[:, 1]
+        a = u_aver[:, 3]
+        # rho, u, p, of the field
+        rho_matrx_l = ul_matrx[:, 0]
+        rho_matrx_r = ur_matrx[:, 0]
+        rho_matrx_c = uc_matrx[:, 0]
+        u_matrx_l = ul_matrx[:, 1] / ul_matrx[:, 0]
+        u_matrx_r = ur_matrx[:, 1] / ur_matrx[:, 0]
+        u_matrx_c = uc_matrx[:, 1] / uc_matrx[:, 0]
+        p_matrx_l = (gamma - 1) * (ul_matrx[:, 2] - ul_matrx[:, 1] ** 2 / ul_matrx[:, 0])
+        p_matrx_r = (gamma - 1) * (ur_matrx[:, 2] - ur_matrx[:, 1] ** 2 / ur_matrx[:, 0])
+        p_matrx_c = (gamma - 1) * (uc_matrx[:, 2] - uc_matrx[:, 1] ** 2 / uc_matrx[:, 0])
+        delta_rho = rho_matrx_r - rho_matrx_l
+        delta_u = u_matrx_r - u_matrx_l
+        delta_p = p_matrx_r - p_matrx_l
+        # matrix |\Lambda|
+        lambda_matrx_abs = np.zeros((len(self.x) + 1, 3))
+        lambda_matrx_abs[:, 0] = np.abs(u - a)
+        lambda_matrx_abs[:, 1] = np.abs(u)
+        lambda_matrx_abs[:, 2] = np.abs(u + a)
+        # column matrix |\Lambda| @ L @ \Delta U
+        lambda_L_U = np.zeros((len(self.x) + 1, 3))
+        lambda_L_U[:, 0] = lambda_matrx_abs[:, 0] * (delta_p - rho * a * delta_u) / (2 * a ** 2)
+        lambda_L_U[:, 1] = lambda_matrx_abs[:, 1] * (delta_rho - delta_p / a ** 2)
+        lambda_L_U[:, 2] = lambda_matrx_abs[:, 2] * (delta_p + rho * a * delta_u) / (2 * a ** 2)
+
+        return lambda_L_U
 
     # scheme programs
 
@@ -658,7 +716,7 @@ class DiffSchemes:
             # u and a (speed of sound) array
             u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f_gene)
             # The basic flux
-            F_matrx = self._get_3d_flux_basic(matrx_f_gene)
+            F_matrx = self._get_3d_flux_basic_uniform(matrx_f_gene)
             # basic half-node flux
             F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])
             # artificial viscosity added
@@ -695,7 +753,7 @@ class DiffSchemes:
             # u (velocity) and a (speed of sound) array
             u_matrx, a_matrx = self._1d_eulerian_u_a(matrx_f_gene)   # -1 to l
             # The basic flux
-            F_matrx = self._get_3d_flux_basic(matrx_f_gene)
+            F_matrx = self._get_3d_flux_basic_uniform(matrx_f_gene)
             # basic half-node flux
             F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:]) # -1 to l-1
             # artificial viscosity added
@@ -742,7 +800,7 @@ class DiffSchemes:
         # Flux generator
         def F_gene(matrx_f_gene):
             # The basic flux
-            F_matrx = self._get_3d_flux_basic(matrx_f_gene)
+            F_matrx = self._get_3d_flux_basic_uniform(matrx_f_gene)
             # basic half-node flux
             F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])  # -1 to l-1
             # expanded matrx (from -1 to l)
@@ -754,8 +812,8 @@ class DiffSchemes:
             ul_matrx = matrx_expand[:-1]    # -1 to l-1
             ur_matrx = matrx_expand[1:]     # 0 to l
             # roe numerical flux
-            roe_aver_values = self._roe_average_values(ul_matrx, ur_matrx)
-            R = self._roe_R_matrix(roe_aver_values)
+            roe_aver_values = self._roe_average_values(ul_matrx, ur_matrx)  # -1 to l-1
+            R = self._roe_R_matrix(roe_aver_values) # -1 to l-1
             lam_L_U = self._roe_lambda_at_L_at_delta_U(roe_aver_values, ul_matrx, ur_matrx,
                                                        entropy_fix = entropy_fix)
             F_roe = - 0.5 * np.einsum('ijk,ik->ij', R, lam_L_U)
@@ -983,9 +1041,10 @@ class DiffSchemes:
         self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim = ylim)
         return 0
 
-    def tvd_minmod(self, t_plot, y_lim = None):
+    def tvd_minmod(self, t_plot, y_lim = None, entropy_fix = None):
         scheme = 'TVD'
         gamma = self.gamma
+        t_x = self.dt / self.dx
         matrx = np.zeros([len(self.x), 3])
         rho_u_p = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
         matrx[:, 0] = rho_u_p[:, 0]
@@ -994,27 +1053,64 @@ class DiffSchemes:
 
         # Flux generator
         def F_gene(matrx_f_gene):
-            # The basic flux (-1 to l)
-            F_matrx = self._get_3d_flux_basic(matrx_f_gene)
-            # basic half-node flux
-            F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])  # -1 to l-1
-            # expanded matrx (from -1 to l)
-            matrx_expand = np.zeros([len(self.x) + 2, 3])
-            matrx_expand[1:-1] = matrx_f_gene
-            matrx_expand[0] = matrx_expand[1]
-            matrx_expand[-1] = matrx_expand[-2]
-            # ul and ur
-            ul_matrx = matrx_expand[:-1]  # -1 to l-1
-            ur_matrx = matrx_expand[1:]  # 0 to l
+            # matrx_f_gene: 0 to l-1
+            # expanded matrx (from -2 to l+1)
+            matrx_expand = np.zeros([len(self.x) + 4, 3])
+            matrx_expand[2:-2] = matrx_f_gene
+            matrx_expand[0] = matrx_expand[1] = matrx_expand[2]
+            matrx_expand[-1] = matrx_expand[-2] = matrx_expand[-3]
+            # ul and ur for roe linearization
+            ul_matrx = matrx_expand[1: -1]  # -1 to l
+            ur_matrx = matrx_expand[2:]  # 0 to l+1
             # roe numerical flux
-            roe_aver_values = self._roe_average_values(ul_matrx, ur_matrx)
-            R = self._roe_R_matrix(roe_aver_values)
-            lam_L_U = self._roe_lambda_at_L_at_delta_U(roe_aver_values, ul_matrx, ur_matrx)
+            roe_aver_values = self._roe_average_values(ul_matrx, ur_matrx)  # -1/2 to l + 1/2
+            R = self._roe_R_matrix(roe_aver_values)[:-1] # -1/2 to l - 1/2
+            L = self._roe_L_matrix(roe_aver_values) # -1/2 to l + 1/2
+            Lambda = self._roe_lambda_matrix(roe_aver_values)[:-1]   # -1/2 to l - 1/2
+            # U_j+1 - U_j (j: -1 to l)
+            diff_p = ur_matrx - ul_matrx
+            # U_j - U_j-1 (j: -1 to l)
+            diff_m = ul_matrx - matrx_expand[:-2]
+            # D_j * \Delta x (-1 to l)
+            D_matrx = self._minmod(diff_p, diff_m)
+            uL_matrx = ul_matrx[:-1] + 0.5 * D_matrx[:-1]
+            uR_matrx = ur_matrx[:-1] - 0.5 * D_matrx[1:]
+            '''# D_j * \Delta x  (-1 to l)
+            W_p = np.einsum('ijk,ik->ij', L, diff_p)
+            W_m = np.einsum('ijk,ik->ij', L, diff_m)
+            D_matrx = self._minmod(W_p, W_m)   # limiter
+            # W^L and W^R (-1 to l-1)
+            L_cut = L[:-1]  # -1 to l-1
+            iden = np.eye(3)
+            iden = np.tile(iden, (len(L_cut), 1, 1))    # identity matrix
+            wl_matrx = np.einsum('ijk,ik->ij', L_cut, ul_matrx[:-1]) \
+                       + 0.5 * np.einsum('ijk,ik->ij', iden - t_x * Lambda, D_matrx[:-1])
+            wr_matrx = np.einsum('ijk,ik->ij', L_cut, ur_matrx[:-1]) \
+                       - 0.5 * np.einsum('ijk,ik->ij', iden + t_x * Lambda, D_matrx[1:])
+            # u^L and u^R for flux (-1 to l-1)
+            uL_matrx = np.einsum('ijk,ik->ij', R, wl_matrx)
+            uR_matrx = np.einsum('ijk,ik->ij', R, wr_matrx)'''
+            # half_node matrx with minmod (-1 to l-1)
+            F_half = 0.5 * (self._get_3d_flux_basic_local(uL_matrx) + self._get_3d_flux_basic_local(uR_matrx))
+            '''# second part by direct computation (-1 to l-1)
+            if entropy_fix is not None:
+                e = entropy_fix
+                Lambda_another = (np.abs(Lambda) ** 2 + e ** 2) / (2 * e)
+                lambda_matrx_abs = np.maximum(np.abs(Lambda), Lambda_another)
+                R_lambda_abs = np.einsum('ijk,ikl->ijl', R, lambda_matrx_abs)
+            else:
+                R_lambda_abs = np.einsum('ijk,ikl->ijl', R, np.abs(Lambda))
+            L_U_r_l = np.einsum('ijk,ik->ij', L_cut, uR_matrx - uL_matrx)
+            F_roe = -0.5 * np.einsum('ijk,ik->ij', R_lambda_abs, L_U_r_l)'''
+            # roe numerical flux
+            R = self._roe_R_matrix(roe_aver_values)[:-1]  # -1 to l-1
+            lam_L_U = self._roe_lambda_at_L_at_delta_U(roe_aver_values[:-1], ul_matrx[:-1], ur_matrx[:-1],
+                                                       entropy_fix=entropy_fix)
             F_roe = - 0.5 * np.einsum('ijk,ik->ij', R, lam_L_U)
-            # final half-node flux
+            # final numerical flux
             F_half += F_roe
             return F_half  # -1 to l-1
 
         # compute and plot
-        self._1d_3vec_eulerian_rk4(matrx, F_gene, scheme, t_plot)
+        self._1d_3vec_tvd_rk3(matrx, F_gene, scheme, t_plot)
         return 0

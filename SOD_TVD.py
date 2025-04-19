@@ -13,11 +13,12 @@ t_terminate = 0.2
 
 # mesh parameters
 mx = 200    # mesh point number
-c = 0.3 # CFL number
+c = 0.2 # CFL number
 a = 1 # convective wave speed
 gamma = 1.4 # isentropic ratio
 dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
+epsilon = None
 
 # artificial viscosity parameters
 k2 = 3
@@ -37,4 +38,4 @@ def ini_condition(x):
 
 item = DiffSchemes(name, dt, dx, x_range, t_range1, gamma = gamma, c = c, ini_condi = ini_condition, folder = folder)
 
-item.tvd_minmod(t_plot)
+item.tvd_minmod(t_plot, entropy_fix = epsilon)

@@ -3,8 +3,6 @@ import matplotlib.pyplot as plt
 # import time, sys
 import os
 
-from botocore.httpsession import mask_proxy_url
-
 
 # Saving folder
 
@@ -25,6 +23,8 @@ class DiffSchemes:
         self.left_x = x[0]
         self.right_x = x[-1]
         self.file_folder = folder
+
+    # plot functions
 
     def _plot_sigma(self, result, time, scheme):
         if not os.path.exists(self.file_folder):
@@ -147,6 +147,312 @@ class DiffSchemes:
         file_path = os.path.join(p_subfolder, f'Solution@p at {time:.3f}.png')
         plt.savefig(file_path)
         plt.close()
+
+
+    # computing functions (and time discretization)
+
+    def _1d_1vec_static(self, co_matrx, scheme: str, t_plot):
+        # initial and boundary
+        matrx = np.zeros(len(self.x))
+        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        matrx_f = matrx.copy()
+        # compute and plot
+        for i in range(1, len(self.t)):
+            matrx = co_matrx @ matrx_f.T
+            matrx_f = matrx.copy()
+            for time in t_plot:
+                if self.t[i] <= time < self.t[i + 1]:
+                    self._plot_cfl(matrx, time, scheme)
+        print(f'case: {self.name}, scheme: {scheme}')
+        print(f'Space range: from {self.left_x} to {self.right_x}.')
+        print('time interval:', self.dt)
+        print('space interval:', self.dx)
+        return matrx
+
+    def _1d_1vec_conserv_rk4(self,
+                             matrx_ini,
+                             F_gene: callable,
+                             scheme: str,
+                             t_plot,
+                             mesh=True,
+                             k_2=None,
+                             k_4=None,
+                             ylim=None):
+        matrx = matrx_ini.copy()
+
+        # discrete \part f\over\part x
+        def F_part_gene(matrx_gene):
+            F_half = F_gene(matrx_gene)
+            F_part = F_half[1:] - F_half[:-1]
+            return F_part
+
+        self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot,
+                          mesh = mesh, k_2 = k_2, k_4 = k_4, ylim = ylim)
+        return 0
+
+    def _1d_1vec_rk4(self,
+                     matrx_ini,
+                     F_part_gene: callable,
+                     scheme: str,
+                     t_plot,
+                     mesh=True,
+                     k_2=None,
+                     k_4=None,
+                     ylim=None):
+        matrx = matrx_ini.copy()
+        t_x = self.dt / self.dx
+        for i in range(1, len(self.t)):
+            matrx_f = matrx.copy()
+            F_part = F_part_gene(matrx_f)  # -1 to l-1
+            matrx_1 = matrx_f - 0.25 * t_x * F_part
+            F_part_1 = F_part_gene(matrx_1)
+            matrx_2 = matrx_f - t_x * F_part_1 / 3
+            F_part_2 = F_part_gene(matrx_2)
+            matrx_3 = matrx_f - 0.5 * t_x * F_part_2
+            F_part_3 = F_part_gene(matrx_3)
+            matrx = matrx_f - t_x * F_part_3
+            for time in t_plot:
+                if self.t[i] <= time < self.t[i + 1]:
+                    self._plot_cfl(matrx, time, scheme,
+                                   cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, ylim=ylim)
+        print(f'case: {self.name}, scheme: {scheme}')
+        print(f'Space range: from {self.left_x} to {self.right_x}.')
+        print('time interval:', self.dt)
+        print('space interval:', self.dx)
+        print('\n')
+        return 0
+
+    def _id_3vec_tvd_rk3(self,
+                         matrx_ini,
+                         F_gene: callable,
+                         scheme: str,
+                         t_plot,
+                         mesh=True,
+                         k_2=None,
+                         k_4=None,
+                         entropy_fix=None):
+        matrx = matrx_ini.copy()
+        t_x = self.dt / self.dx
+        for i in range(1, len(self.t)):
+            matrx_f = matrx.copy()
+            F_half = F_gene(matrx_f)
+            matrx_1 = matrx_f - t_x * (F_half[1:] - F_half[:-1])
+            F_half_1 = F_gene(matrx_1)
+            matrx_2 = 0.75 * matrx_f - 0.25 * t_x * (F_half_1[1:] - F_half_1[:-1]) / 3
+            F_half_2 = F_gene(matrx_2)
+            matrx_3 = matrx_f / 3 - 2 * t_x * (F_half_2[1:] - F_half_2[:-1]) / 3
+            matrx = matrx_3
+            for time in t_plot:
+                if self.t[i] <= time < self.t[i + 1]:
+                    self._plot_1d_3vec(matrx, time, scheme,
+                                       cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, entropy_fix=entropy_fix)
+        print(f'case: {self.name}, scheme: {scheme}')
+        print(f'Space range: from {self.left_x} to {self.right_x}.')
+        print('time interval:', self.dt)
+        print('space interval:', self.dx)
+        return 0
+
+    def _1d_3vec_eulerian_explicit(self,
+                                   matrx_ini,
+                                   F_gene: callable,
+                                   scheme: str,
+                                   t_plot,
+                                   mesh = True,
+                                   k_2 = None,
+                                   k_4 = None):
+        matrx = matrx_ini.copy()
+        t_x = self.dt / self.dx
+        for i in range(1, len(self.t)):
+            matrx_f = matrx.copy()
+            F_half = F_gene(matrx_f)
+            matrx = matrx_f - t_x * (F_half[1:] - F_half[:-1])
+            for time in t_plot:
+                if self.t[i] <= time < self.t[i + 1]:
+                    self._plot_1d_3vec(matrx, time, scheme, cfl = False, mesh = mesh, k_2 = k_2, k_4 = k_4)
+        print(f'case: {self.name}, scheme: {scheme}')
+        print(f'Space range: from {self.left_x} to {self.right_x}.')
+        print('time interval:', self.dt)
+        print('space interval:', self.dx)
+        return 0
+
+    def _1d_3vec_eulerian_rk4(self,
+                              matrx_ini,
+                              F_gene: callable,
+                              scheme: str,
+                              t_plot,
+                              mesh = True,
+                              k_2 = None,
+                              k_4 = None,
+                              entropy_fix = None):
+        matrx = matrx_ini.copy()
+        t_x = self.dt / self.dx
+        for i in range(1, len(self.t)):
+            matrx_f = matrx.copy()
+            F_half = F_gene(matrx_f)
+            matrx_1 = matrx_f - 0.25 * t_x * (F_half[1:] - F_half[:-1])
+            F_half_1 = F_gene(matrx_1)
+            matrx_2 = matrx_f - t_x * (F_half_1[1:] - F_half_1[:-1]) / 3
+            F_half_2 = F_gene(matrx_2)
+            matrx_3 = matrx_f - 0.5 * t_x * (F_half_2[1:] - F_half_2[:-1])
+            F_half_3 = F_gene(matrx_3)
+            matrx = matrx_f - t_x * (F_half_3[1:] - F_half_3[:-1])
+            for time in t_plot:
+                if self.t[i] <= time < self.t[i + 1]:
+                    self._plot_1d_3vec(matrx, time, scheme,
+                                       cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, entropy_fix = entropy_fix)
+        print(f'case: {self.name}, scheme: {scheme}')
+        print(f'Space range: from {self.left_x} to {self.right_x}.')
+        print('time interval:', self.dt)
+        print('space interval:', self.dx)
+        return 0
+
+
+    # private methods
+
+    def _1d_eulerian_u_a(self, matrx_f):
+        gamma = self.gamma
+        # speed of sound
+        def det_a_matrx(matrx_f):
+            a_matrx = np.zeros(len(self.x) + 2) # -1 to l
+            a_matrx[1: -1] = (((gamma * (gamma - 1) * (matrx_f[:, 2] - 0.5 * matrx_f[:, 1] ** 2 / matrx_f[:, 0]))
+                        / matrx_f[:, 0]) ** 0.5)
+            a_matrx[0] = a_matrx[1]
+            a_matrx[-1] = a_matrx[-2]
+            a_matrx = a_matrx[:, np.newaxis]
+            return a_matrx
+        a_matrx = det_a_matrx(matrx_f)
+        # velocity
+        def det_u_matrx(matrx_f):
+            u_matrx = np.zeros(len(self.x) + 2) # -1 to l
+            u_matrx[1: -1] = matrx_f[:, 1] / matrx_f[:, 0]
+            u_matrx[0] = u_matrx[1]
+            u_matrx[-1] = u_matrx[-2]
+            u_matrx = u_matrx[:, np.newaxis]
+            return u_matrx
+        u_matrx = det_u_matrx(matrx_f)
+        return u_matrx, a_matrx
+
+    def _1d_eulerian_A(self, matrx_f):
+        gamma = self.gamma
+        A = np.zeros([matrx_f.shape[0], 3, 3])
+        A[:, 0, 0] = A[:, 0, 2] = 0
+        A[:, 0, 1] = 1
+        A[:, 1, 0] = (gamma - 3) * 0.5 * (matrx_f[:, 1] ** 2 / matrx_f[:, 0] ** 2)
+        A[:, 1, 1] = (3 - gamma) * matrx_f[:, 1] / matrx_f[:, 0]
+        A[:, 1, 2] = gamma - 1
+        A[:, 2, 0] = (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 3 - gamma * matrx_f[:, 1] * matrx_f[:, 2] / matrx_f[:,
+                                                                                                          0] ** 2
+        A[:, 2, 1] = -1.5 * (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 + gamma * matrx_f[:, 2] / matrx_f[:, 0]
+        A[:, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]
+        return A
+
+    def _get_3d_flux_basic(self, matrx_f_gene):
+        gamma = self.gamma
+        rho_matrx = matrx_f_gene[:, 0]
+        m_matrx = matrx_f_gene[:, 1]
+        epsilon_matrx = matrx_f_gene[:, 2]
+        F_matrx = np.zeros([len(self.x) + 2, 3])
+        F_matrx[1:-1, 0] = matrx_f_gene[:, 1]
+        F_matrx[1:-1, 1] = m_matrx ** 2 / rho_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx)
+        F_matrx[1:-1, 2] = (m_matrx / rho_matrx) * (epsilon_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx))
+        F_matrx[0] = F_matrx[1]
+        F_matrx[-1] = F_matrx[-2]
+        return F_matrx
+
+    def _get_3d_flux_half(self, matrx_f_gene):
+        gamma = self.gamma
+        rho_matrx = matrx_f_gene[:, 0]
+        m_matrx = matrx_f_gene[:, 1]
+        epsilon_matrx = matrx_f_gene[:, 2]
+        F_matrx = np.zeros([len(self.x) + 2, 3])
+        F_matrx[1:-1, 0] = matrx_f_gene[:, 1]
+        F_matrx[1:-1, 1] = m_matrx ** 2 / rho_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx)
+        F_matrx[1:-1, 2] = (m_matrx / rho_matrx) * (
+                    epsilon_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx))
+        F_matrx[0] = F_matrx[1]
+        F_matrx[-1] = F_matrx[-2]
+        return F_matrx
+
+    def _get_1d_flux_basic(self, matrx_f_gene):
+        F_matrx = self.a * matrx_f_gene
+        return F_matrx
+
+    def _roe_average_values(self, ul_matrx, ur_matrx):
+        # ul, ur with shape (3,)
+        gamma = self.gamma
+        # return \rho, u, H, a
+        u_aver = np.zeros((len(self.x) + 1, 4))
+        # rho
+        u_aver[:, 0] = np.sqrt(ul_matrx[:, 0] * ur_matrx[:, 0])
+        # u
+        u_aver[:, 1] = ((ul_matrx[:, 1] / np.sqrt(ur_matrx[:, 0])) + (ur_matrx[:, 1] / np.sqrt(ur_matrx[:, 0]))
+                     / (np.sqrt(ul_matrx[:, 0]) + np.sqrt(ur_matrx[:, 0])))
+        # Hl and Hr
+        Hl = (ul_matrx[:, 2] + (gamma - 1) * (ul_matrx[:, 2] - ul_matrx[:, 1] ** 2 / ul_matrx[:, 0])) / ul_matrx[:, 0]
+        Hr = (ur_matrx[:, 2] + (gamma - 1) * (ur_matrx[:, 2] - ur_matrx[:, 1] ** 2 / ur_matrx[:, 0])) / ur_matrx[:, 0]
+        # H
+        u_aver[:, 2] = (Hl * ul_matrx[:, 0] + Hr * ur_matrx[:, 0]) / (np.sqrt(ul_matrx[:, 0]) + np.sqrt(ur_matrx[:, 0]))
+        # a
+        u_aver[:, 3] = (gamma - 1) * (u_aver[:, 2] - 0.5 * u_aver[:, 1] ** 2)
+
+        return u_aver
+
+    def _roe_R_matrix(self, u_aver):
+        u = u_aver[:, 1]
+        H = u_aver[:, 2]
+        a = u_aver[:, 3]
+        R = np.zeros((len(self.x) + 1, 3, 3))
+        R[:, 0, :] = 1
+        R[:, 1, 0] = u - a
+        R[:, 2, 0] = H - u * a
+        R[:, 1, 1] = u
+        R[:, 2, 1] = 0.5 * u ** 2
+        R[:, 1, 2] = u + a
+        R[:, 2, 2] = H + u * a
+        return R
+
+    def _roe_lambda_at_L_at_delta_U(self, u_aver, ul_matrx, ur_matrx, entropy_fix = None):
+        gamma = self.gamma
+        # roe average values
+        rho = u_aver[:, 0]
+        u = u_aver[:, 1]
+        a = u_aver[:, 3]
+        # rho, u, p, of the field
+        rho_matrx_l = ul_matrx[:, 0]
+        rho_matrx_r = ur_matrx[:, 0]
+        u_matrx_l = ul_matrx[:, 1] / ul_matrx[:, 0]
+        u_matrx_r = ur_matrx[:, 1] / ur_matrx[:, 0]
+        p_matrx_l = (gamma - 1) * (ul_matrx[:, 2] - ul_matrx[:, 1] ** 2 / ul_matrx[:, 0])
+        p_matrx_r = (gamma - 1) * (ur_matrx[:, 2] - ur_matrx[:, 1] ** 2 / ur_matrx[:, 0])
+        delta_rho = rho_matrx_r - rho_matrx_l
+        delta_u = u_matrx_r - u_matrx_l
+        delta_p = p_matrx_r - p_matrx_l
+        # matrix |\Lambda|
+        if entropy_fix is not None:
+            e = entropy_fix
+            lambda_matrx_abs = np.zeros((len(self.x) + 1, 3))
+            lambda_matrx_abs[:, 0] = np.abs(u - a)
+            lambda_matrx_abs[:, 1] = np.abs(u)
+            lambda_matrx_abs[:, 2] = np.abs(u + a)
+            lambda_another = (lambda_matrx_abs ** 2 + e ** 2) / (2 * e)
+            lambda_matrx_abs = np.maximum(lambda_matrx_abs, lambda_another)
+        else:
+            lambda_matrx_abs = np.zeros((len(self.x) + 1, 3))
+            lambda_matrx_abs[:, 0] = np.abs(u - a)
+            lambda_matrx_abs[:, 1] = np.abs(u)
+            lambda_matrx_abs[:, 2] = np.abs(u + a)
+        # column matrix |\Lambda| @ L @ \Delta U
+        lambda_L_U = np.zeros((len(self.x) + 1, 3))
+        lambda_L_U[:, 0] = lambda_matrx_abs[:, 0] * (delta_p - rho * a * delta_u) / (2 * a ** 2)
+        lambda_L_U[:, 1] = lambda_matrx_abs[:, 1] * (delta_rho - delta_p / a ** 2)
+        lambda_L_U[:, 2] = lambda_matrx_abs[:, 2] * (delta_p + rho * a * delta_u) / (2 * a ** 2)
+
+        return lambda_L_U
+
+    def _minmod(self, matrx1, matrx2):
+        return 0.5 * (np.sign(matrx1) + np.sign(matrx2)) * np.minimum(np.abs(matrx1), np.abs(matrx2))
+
+    # scheme programs
 
     def ftcs(self, t_plot):
         # initial and boundary
@@ -274,258 +580,6 @@ class DiffSchemes:
         print('time interval:', self.dt)
         print('space interval:', self.dx)
         return matrx
-
-    def _1d_1vec_static(self, co_matrx, scheme: str, t_plot):
-        # initial and boundary
-        matrx = np.zeros(len(self.x))
-        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
-        matrx_f = matrx.copy()
-        # compute and plot
-        for i in range(1, len(self.t)):
-            matrx = co_matrx @ matrx_f.T
-            matrx_f = matrx.copy()
-            for time in t_plot:
-                if self.t[i] <= time < self.t[i + 1]:
-                    self._plot_cfl(matrx, time, scheme)
-        print(f'case: {self.name}, scheme: {scheme}')
-        print(f'Space range: from {self.left_x} to {self.right_x}.')
-        print('time interval:', self.dt)
-        print('space interval:', self.dx)
-        return matrx
-
-    def _1d_1vec_conserv_rk4(self,
-                             matrx_ini,
-                             F_gene: callable,
-                             scheme: str,
-                             t_plot,
-                             mesh=True,
-                             k_2=None,
-                             k_4=None,
-                             ylim=None):
-        matrx = matrx_ini.copy()
-
-        # discrete \part f\over\part x
-        def F_part_gene(matrx_gene):
-            F_half = F_gene(matrx_gene)
-            F_part = F_half[1:] - F_half[:-1]
-            return F_part
-
-        self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot,
-                          mesh = mesh, k_2 = k_2, k_4 = k_4, ylim = ylim)
-        return 0
-
-    def _1d_1vec_rk4(self,
-                     matrx_ini,
-                     F_part_gene: callable,
-                     scheme: str,
-                     t_plot,
-                     mesh=True,
-                     k_2=None,
-                     k_4=None,
-                     ylim=None):
-        matrx = matrx_ini.copy()
-        t_x = self.dt / self.dx
-        for i in range(1, len(self.t)):
-            matrx_f = matrx.copy()
-            F_part = F_part_gene(matrx_f)  # -1 to l-1
-            matrx_1 = matrx_f - 0.25 * t_x * F_part
-            F_part_1 = F_part_gene(matrx_1)
-            matrx_2 = matrx_f - t_x * F_part_1 / 3
-            F_part_2 = F_part_gene(matrx_2)
-            matrx_3 = matrx_f - 0.5 * t_x * F_part_2
-            F_part_3 = F_part_gene(matrx_3)
-            matrx = matrx_f - t_x * F_part_3
-            for time in t_plot:
-                if self.t[i] <= time < self.t[i + 1]:
-                    self._plot_cfl(matrx, time, scheme,
-                                   cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, ylim=ylim)
-        print(f'case: {self.name}, scheme: {scheme}')
-        print(f'Space range: from {self.left_x} to {self.right_x}.')
-        print('time interval:', self.dt)
-        print('space interval:', self.dx)
-        print('\n')
-        return 0
-
-
-    def _1d_3vec_eulerian_explicit(self,
-                                   matrx_ini,
-                                   F_gene: callable,
-                                   scheme: str,
-                                   t_plot,
-                                   mesh = True,
-                                   k_2 = None,
-                                   k_4 = None):
-        matrx = matrx_ini.copy()
-        t_x = self.dt / self.dx
-        for i in range(1, len(self.t)):
-            matrx_f = matrx.copy()
-            F_half = F_gene(matrx_f)
-            matrx = matrx_f - t_x * (F_half[1:] - F_half[:-1])
-            for time in t_plot:
-                if self.t[i] <= time < self.t[i + 1]:
-                    self._plot_1d_3vec(matrx, time, scheme, cfl = False, mesh = mesh, k_2 = k_2, k_4 = k_4)
-        print(f'case: {self.name}, scheme: {scheme}')
-        print(f'Space range: from {self.left_x} to {self.right_x}.')
-        print('time interval:', self.dt)
-        print('space interval:', self.dx)
-        return 0
-
-    def _1d_3vec_eulerian_rk4(self,
-                              matrx_ini,
-                              F_gene: callable,
-                              scheme: str,
-                              t_plot,
-                              mesh = True,
-                              k_2 = None,
-                              k_4 = None,
-                              entropy_fix = None):
-        matrx = matrx_ini.copy()
-        t_x = self.dt / self.dx
-        for i in range(1, len(self.t)):
-            matrx_f = matrx.copy()
-            F_half = F_gene(matrx_f)
-            matrx_1 = matrx_f - 0.25 * t_x * (F_half[1:] - F_half[:-1])
-            F_half_1 = F_gene(matrx_1)
-            matrx_2 = matrx_f - t_x * (F_half_1[1:] - F_half_1[:-1]) / 3
-            F_half_2 = F_gene(matrx_2)
-            matrx_3 = matrx_f - 0.5 * t_x * (F_half_2[1:] - F_half_2[:-1])
-            F_half_3 = F_gene(matrx_3)
-            matrx = matrx_f - t_x * (F_half_3[1:] - F_half_3[:-1])
-            for time in t_plot:
-                if self.t[i] <= time < self.t[i + 1]:
-                    self._plot_1d_3vec(matrx, time, scheme,
-                                       cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, entropy_fix = entropy_fix)
-        print(f'case: {self.name}, scheme: {scheme}')
-        print(f'Space range: from {self.left_x} to {self.right_x}.')
-        print('time interval:', self.dt)
-        print('space interval:', self.dx)
-        return 0
-
-    def _1d_eulerian_u_a(self, matrx_f):
-        gamma = self.gamma
-        # speed of sound
-        def det_a_matrx(matrx_f):
-            a_matrx = np.zeros(len(self.x) + 2) # -1 to l
-            a_matrx[1: -1] = (((gamma * (gamma - 1) * (matrx_f[:, 2] - 0.5 * matrx_f[:, 1] ** 2 / matrx_f[:, 0]))
-                        / matrx_f[:, 0]) ** 0.5)
-            a_matrx[0] = a_matrx[1]
-            a_matrx[-1] = a_matrx[-2]
-            a_matrx = a_matrx[:, np.newaxis]
-            return a_matrx
-        a_matrx = det_a_matrx(matrx_f)
-        # velocity
-        def det_u_matrx(matrx_f):
-            u_matrx = np.zeros(len(self.x) + 2) # -1 to l
-            u_matrx[1: -1] = matrx_f[:, 1] / matrx_f[:, 0]
-            u_matrx[0] = u_matrx[1]
-            u_matrx[-1] = u_matrx[-2]
-            u_matrx = u_matrx[:, np.newaxis]
-            return u_matrx
-        u_matrx = det_u_matrx(matrx_f)
-        return u_matrx, a_matrx
-
-    def _1d_eulerian_A(self, matrx_f):
-        gamma = self.gamma
-        A = np.zeros([matrx_f.shape[0], 3, 3])
-        A[:, 0, 0] = A[:, 0, 2] = 0
-        A[:, 0, 1] = 1
-        A[:, 1, 0] = (gamma - 3) * 0.5 * (matrx_f[:, 1] ** 2 / matrx_f[:, 0] ** 2)
-        A[:, 1, 1] = (3 - gamma) * matrx_f[:, 1] / matrx_f[:, 0]
-        A[:, 1, 2] = gamma - 1
-        A[:, 2, 0] = (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 3 - gamma * matrx_f[:, 1] * matrx_f[:, 2] / matrx_f[:,
-                                                                                                          0] ** 2
-        A[:, 2, 1] = -1.5 * (gamma - 1) * (matrx_f[:, 1] / matrx_f[:, 0]) ** 2 + gamma * matrx_f[:, 2] / matrx_f[:, 0]
-        A[:, 2, 2] = gamma * matrx_f[:, 1] / matrx_f[:, 0]
-        return A
-
-    def _get_3d_flux_basic(self, matrx_f_gene):
-        gamma = self.gamma
-        rho_matrx = matrx_f_gene[:, 0]
-        m_matrx = matrx_f_gene[:, 1]
-        epsilon_matrx = matrx_f_gene[:, 2]
-        F_matrx = np.zeros([len(self.x) + 2, 3])
-        F_matrx[1:-1, 0] = matrx_f_gene[:, 1]
-        F_matrx[1:-1, 1] = m_matrx ** 2 / rho_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx)
-        F_matrx[1:-1, 2] = (m_matrx / rho_matrx) * (epsilon_matrx + (gamma - 1) * (epsilon_matrx - m_matrx ** 2 / rho_matrx))
-        F_matrx[0] = F_matrx[1]
-        F_matrx[-1] = F_matrx[-2]
-        return F_matrx
-
-    def _get_1d_flux_basic(self, matrx_f_gene):
-        F_matrx = self.a * matrx_f_gene
-        return F_matrx
-
-    def _roe_average_values(self, ul_matrx, ur_matrx):
-        # ul, ur with shape (3,)
-        gamma = self.gamma
-        # return \rho, u, H, a
-        u_aver = np.zeros((len(self.x) + 1, 4))
-        # rho
-        u_aver[:, 0] = np.sqrt(ul_matrx[:, 0] * ur_matrx[:, 0])
-        # u
-        u_aver[:, 1] = ((ul_matrx[:, 1] / np.sqrt(ur_matrx[:, 0])) + (ur_matrx[:, 1] / np.sqrt(ur_matrx[:, 0]))
-                     / (np.sqrt(ul_matrx[:, 0]) + np.sqrt(ur_matrx[:, 0])))
-        # Hl and Hr
-        Hl = (ul_matrx[:, 2] + (gamma - 1) * (ul_matrx[:, 2] - ul_matrx[:, 1] ** 2 / ul_matrx[:, 0])) / ul_matrx[:, 0]
-        Hr = (ur_matrx[:, 2] + (gamma - 1) * (ur_matrx[:, 2] - ur_matrx[:, 1] ** 2 / ur_matrx[:, 0])) / ur_matrx[:, 0]
-        # H
-        u_aver[:, 2] = (Hl * ul_matrx[:, 0] + Hr * ur_matrx[:, 0]) / (np.sqrt(ul_matrx[:, 0]) + np.sqrt(ur_matrx[:, 0]))
-        # a
-        u_aver[:, 3] = (gamma - 1) * (u_aver[:, 2] - 0.5 * u_aver[:, 1] ** 2)
-
-        return u_aver
-
-    def _roe_R_matrix(self, u_aver):
-        u = u_aver[:, 1]
-        H = u_aver[:, 2]
-        a = u_aver[:, 3]
-        R = np.zeros((len(self.x) + 1, 3, 3))
-        R[:, 0, :] = 1
-        R[:, 1, 0] = u - a
-        R[:, 2, 0] = H - u * a
-        R[:, 1, 1] = u
-        R[:, 2, 1] = 0.5 * u ** 2
-        R[:, 1, 2] = u + a
-        R[:, 2, 2] = H + u * a
-        return R
-
-    def _roe_lambda_at_L_at_delta_U(self, u_aver, ul_matrx, ur_matrx, entropy_fix = None):
-        gamma = self.gamma
-        # roe average values
-        rho = u_aver[:, 0]
-        u = u_aver[:, 1]
-        a = u_aver[:, 3]
-        # rho, u, p, of the field
-        rho_matrx_l = ul_matrx[:, 0]
-        rho_matrx_r = ur_matrx[:, 0]
-        u_matrx_l = ul_matrx[:, 1] / ul_matrx[:, 0]
-        u_matrx_r = ur_matrx[:, 1] / ur_matrx[:, 0]
-        p_matrx_l = (gamma - 1) * (ul_matrx[:, 2] - ul_matrx[:, 1] ** 2 / ul_matrx[:, 0])
-        p_matrx_r = (gamma - 1) * (ur_matrx[:, 2] - ur_matrx[:, 1] ** 2 / ur_matrx[:, 0])
-        delta_rho = rho_matrx_r - rho_matrx_l
-        delta_u = u_matrx_r - u_matrx_l
-        delta_p = p_matrx_r - p_matrx_l
-        # matrix |\Lambda|
-        if entropy_fix is not None:
-            e = entropy_fix
-            lambda_matrx_abs = np.zeros((len(self.x) + 1, 3))
-            lambda_matrx_abs[:, 0] = np.abs(u - a)
-            lambda_matrx_abs[:, 1] = np.abs(u)
-            lambda_matrx_abs[:, 2] = np.abs(u + a)
-            lambda_another = (lambda_matrx_abs ** 2 + e ** 2) / (2 * e)
-            lambda_matrx_abs = np.maximum(lambda_matrx_abs, lambda_another)
-        else:
-            lambda_matrx_abs = np.zeros((len(self.x) + 1, 3))
-            lambda_matrx_abs[:, 0] = np.abs(u - a)
-            lambda_matrx_abs[:, 1] = np.abs(u)
-            lambda_matrx_abs[:, 2] = np.abs(u + a)
-        # column matrix |\Lambda| @ L @ \Delta U
-        lambda_L_U = np.zeros((len(self.x) + 1, 3))
-        lambda_L_U[:, 0] = lambda_matrx_abs[:, 0] * (delta_p - rho * a * delta_u) / (2 * a ** 2)
-        lambda_L_U[:, 1] = lambda_matrx_abs[:, 1] * (delta_rho - delta_p / a ** 2)
-        lambda_L_U[:, 2] = lambda_matrx_abs[:, 2] * (delta_p + rho * a * delta_u) / (2 * a ** 2)
-
-        return lambda_L_U
 
     def lax_wendroff(self, t_plot):
         # scheme parameters
@@ -717,7 +771,6 @@ class DiffSchemes:
         scheme = 'DRP'
         matrx = np.zeros(len(self.x))
         matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
-        l = len(matrx)
         # global parameters
         a0 = 0
         a1 = 0.79926643
@@ -928,4 +981,40 @@ class DiffSchemes:
 
         # compute and plot
         self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim = ylim)
+        return 0
+
+    def tvd_minmod(self, t_plot, y_lim = None):
+        scheme = 'TVD'
+        gamma = self.gamma
+        matrx = np.zeros([len(self.x), 3])
+        rho_u_p = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        matrx[:, 0] = rho_u_p[:, 0]
+        matrx[:, 1] = rho_u_p[:, 0] * rho_u_p[:, 1]
+        matrx[:, 2] = (rho_u_p[:, 2] / (gamma - 1)) + 0.5 * rho_u_p[:, 0] * rho_u_p[:, 1] ** 2
+
+        # Flux generator
+        def F_gene(matrx_f_gene):
+            # The basic flux (-1 to l)
+            F_matrx = self._get_3d_flux_basic(matrx_f_gene)
+            # basic half-node flux
+            F_half = 0.5 * (F_matrx[:-1] + F_matrx[1:])  # -1 to l-1
+            # expanded matrx (from -1 to l)
+            matrx_expand = np.zeros([len(self.x) + 2, 3])
+            matrx_expand[1:-1] = matrx_f_gene
+            matrx_expand[0] = matrx_expand[1]
+            matrx_expand[-1] = matrx_expand[-2]
+            # ul and ur
+            ul_matrx = matrx_expand[:-1]  # -1 to l-1
+            ur_matrx = matrx_expand[1:]  # 0 to l
+            # roe numerical flux
+            roe_aver_values = self._roe_average_values(ul_matrx, ur_matrx)
+            R = self._roe_R_matrix(roe_aver_values)
+            lam_L_U = self._roe_lambda_at_L_at_delta_U(roe_aver_values, ul_matrx, ur_matrx)
+            F_roe = - 0.5 * np.einsum('ijk,ik->ij', R, lam_L_U)
+            # final half-node flux
+            F_half += F_roe
+            return F_half  # -1 to l-1
+
+        # compute and plot
+        self._1d_3vec_eulerian_rk4(matrx, F_gene, scheme, t_plot)
         return 0

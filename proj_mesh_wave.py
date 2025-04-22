@@ -58,8 +58,10 @@ def get_results(mx_ls):
         return ini_condition(x)
     for mx_ in mx_ls:
         dx_ = (right_x - left_x) / (mx_ - 1)
-        dt_ = c * dx / a
-        item = DiffSchemes(name, dt_, dx_, x_range, t_range, c=c, ini_condi=ini_condit, folder=folder)
+        dt_ = c * dx_ / a
+        x_range_ = np.arange(left_x, right_x + dx_, dx_)
+        t_range_ = np.arange(0, t_terminate + 2 * dt_, dt_)
+        item = DiffSchemes(name, dt_, dx_, x_range_, t_range_, c=c, ini_condi=ini_condit, folder=folder)
         result_drp = item.drp(t_plot, y_lim)
         result_drp_m = item.drp_m(t_plot, y_lim, Re_a=20)
         result_sadrp = item.sadrp(t_plot, y_lim)
@@ -91,13 +93,40 @@ def compute_l1_loss(result, acc_solu):
     # result.shape = (4,)
     loss = np.zeros(4)
     for i in range(4):
-        diff = result[i] - acc_solu[i]
-        N_ = len(result)
+        diff = result[i] - acc_solu
+        N_ = len(result[0])
         loss[i] = (np.abs(diff) / N_).sum()
     return loss
 
-results_single = np.array(get_results(mx_single))
+def compute_all_l1_loss(results, mx_ls_):
+    losses = np.zeros((len(results), 4))
+    for i in range(len(results)):
+        dx_ = (right_x - left_x) / (mx_ls_[i] - 1)
+        x_range_ = np.arange(left_x, right_x + dx_, dx_)
+        acc_solu = accu_solution(x_range_, t_terminate)
+        loss = compute_l1_loss(results[i], acc_solu)
+        losses[i] = loss
+    return losses
+
+def evaluate_precision(losses, mx_ls_):
+    log_values = np.zeros_like(losses)
+    orders = []
+    for i in range(len(mx_ls_)):
+        log_values[i] = np.log2(losses[i])
+    for j in range(len(mx_ls_)-1):
+        orders.append(log_values[j+1] - log_values[j])
+    return -np.array(orders)
+
+'''results_single = np.array(get_results(mx_single))
 accurate_solution = accu_solution(x_range, t_terminate)
 postprocess(results_single, accurate_solution)
-loss_single = compute_l1_loss(results_single[0], accurate_solution)
-print(loss_single)
+loss_single = compute_l1_loss(results_single[0], accurate_solution)'''
+
+
+
+results = get_results(mx_ls)
+accurate_solution = accu_solution(x_range, t_terminate)
+losses = compute_all_l1_loss(results, mx_ls)
+print(losses)
+orders = evaluate_precision(losses, mx_ls)
+print(orders)

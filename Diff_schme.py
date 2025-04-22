@@ -69,10 +69,10 @@ class DiffSchemes:
             if not os.path.exists(file_subfolder):
                 os.makedirs(file_subfolder)
         plt.figure(figsize=(8, 6))
-        plt.plot(x, y, marker='o', linestyle='-', color='b', label='Temperature')
+        plt.plot(x, y, marker='o', linestyle='-', color='b', label='Velocity')
         plt.title(f"Solution at Time={time:.3f},step = {int(time / self.dt)}")
         plt.xlabel("x")
-        plt.ylabel("Temperature")
+        plt.ylabel("Velocity")
         if ylim is not None:
             plt.ylim(ylim)
         plt.grid(True)

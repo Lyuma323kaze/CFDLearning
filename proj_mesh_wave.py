@@ -2,34 +2,102 @@ from Diff_schme import DiffSchemes
 import numpy as np
 import matplotlib.pyplot as plt
 
+
+
 # name and folder of the case
-name = 'wave_packet'
+name = 'mesh_wave'
 folder = 'Proj1'
 
 # domain parameters
 left_x = 0
 right_x = 1
 
-t_terminate = 10
+t_terminate = 1
 
 
 # mesh parameters
+mx_ls = [64, 128, 256, 512, 1024]
+mx_single = [256]
 mx = 256    # mesh point number
-c = 0.3 # CFL number
+c = 0.2 # CFL number
 a = 1 # convective wave speed
 dx = (right_x - left_x) / (mx - 1)
 dt = c * dx / a
-m = 20
-m_ls = [20, 40, 60, 80, 100, 120]
-m_ls_single = [20]
 
 
 # set of mesh points and plot points
 x_range = np.arange(left_x, right_x + dx, dx)
-t_range = np.arange(0, t_terminate + dt, dt)
-t_plot = [0, 1, 5, 10.]
-t_plot_refined = np.linspace(0, 0.1, 10)
+t_range = np.arange(0, t_terminate + 2*dt, dt)
+t_plot = [0, 0.5, 1]
 
 # plot parameter
 # y_lim = (0, 1.2)
 y_lim = None
+
+def ini_condition(x, m = 64):
+    np.random.seed(941)
+    value = 1
+    addition = 0
+    epsilon = 0.1
+    k0 = 24
+    def ek(k, k0):
+        return (k/k0)**4 * np.exp(-2*(k/k0)**2)
+    for k in range(m):
+        psi = np.random.random()
+        addition += np.sqrt(ek(k+1, k0)) * np.sin(2*np.pi*(x+psi)*(k+1))
+    addition *= epsilon
+    addition += value
+    return addition
+
+def accu_solution(x, t):
+    return ini_condition(x - t)
+
+def get_results(mx_ls):
+    results = []
+    def ini_condit(x):
+        return ini_condition(x)
+    for mx_ in mx_ls:
+        dx_ = (right_x - left_x) / (mx_ - 1)
+        dt_ = c * dx / a
+        item = DiffSchemes(name, dt_, dx_, x_range, t_range, c=c, ini_condi=ini_condit, folder=folder)
+        result_drp = item.drp(t_plot, y_lim)
+        result_drp_m = item.drp_m(t_plot, y_lim, Re_a=20)
+        result_sadrp = item.sadrp(t_plot, y_lim)
+        result_mdcd = item.mdcd(t_plot, y_lim)
+        result_subls = [result_drp, result_drp_m, result_sadrp, result_mdcd]
+        results.append(result_subls)
+    return results     # (len(mx_ls), 4)
+
+def postprocess(results, solution):
+    colors = ['r', 'brown', 'b', 'g']
+    markers = ['o', 'v', 'o', '^']
+    labels = ['DRP', 'DRP-M', 'SA-DRP', 'MDCD']
+    results = results[0]
+    plt.figure(figsize=(8, 6))
+    for i in range(len(results)):
+        result = results[i]
+        color = colors[i]
+        marker = markers[i]
+        label = labels[i]
+        plt.plot(x_range, result, marker=marker, linestyle='-', color=color, label=label)
+    plt.plot(x_range, solution, linestyle='-', color='k', label='Solution')
+    plt.xlabel("x")
+    plt.ylabel("Velocity")
+    plt.grid(True)
+    plt.legend()
+    plt.savefig('Proj1\Fig_mesh_wave\Result at t = 10.png')
+
+def compute_l1_loss(result, acc_solu):
+    # result.shape = (4,)
+    loss = np.zeros(4)
+    for i in range(4):
+        diff = result[i] - acc_solu[i]
+        N_ = len(result)
+        loss[i] = (np.abs(diff) / N_).sum()
+    return loss
+
+results_single = np.array(get_results(mx_single))
+accurate_solution = accu_solution(x_range, t_terminate)
+postprocess(results_single, accurate_solution)
+loss_single = compute_l1_loss(results_single[0], accurate_solution)
+print(loss_single)

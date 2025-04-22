@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 # import time, sys
 import os
 
-from sympy.physics.quantum.density import entropy
 
 
 # Saving folder
@@ -50,7 +49,7 @@ class DiffSchemes:
         plt.close()
 
     def _plot_cfl(self, result, time, scheme,
-                  mesh = None, cfl = True, k_2 = None, k_4 = None, ylim = None):
+                  mesh = None, cfl = True, k_2 = None, k_4 = None, ylim = None, m = None):
         if not os.path.exists(self.file_folder):
             os.makedirs(self.file_folder)
         file_folder = self.file_folder
@@ -65,6 +64,8 @@ class DiffSchemes:
             file_subfolder = os.path.join(file_folder, f'{self.name}@{scheme}@mesh = {len(self.x)}')
             if k_2 is not None:
                 file_subfolder = os.path.join(file_subfolder, f'@k_2 = {k_2}@k_4 = {k_4}')
+            if m is not None:
+                file_subfolder = os.path.join(file_subfolder, f'@m = {m}')
             if not os.path.exists(file_subfolder):
                 os.makedirs(file_subfolder)
         plt.figure(figsize=(8, 6))
@@ -74,8 +75,6 @@ class DiffSchemes:
         plt.ylabel("Temperature")
         if ylim is not None:
             plt.ylim(ylim)
-        else:
-            plt.ylim(0, 3.3)
         plt.grid(True)
         plt.legend()
         file_path = os.path.join(file_subfolder, f'Solution at {time:.3f}.png')
@@ -179,7 +178,8 @@ class DiffSchemes:
                              mesh=True,
                              k_2=None,
                              k_4=None,
-                             ylim=None):
+                             ylim=None,
+                             m = None):
         matrx = matrx_ini.copy()
 
         # discrete \part f\over\part x
@@ -188,9 +188,9 @@ class DiffSchemes:
             F_part = F_half[1:] - F_half[:-1]
             return F_part
 
-        self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot,
-                          mesh = mesh, k_2 = k_2, k_4 = k_4, ylim = ylim)
-        return 0
+        matrx_re = self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot,
+                          mesh = mesh, k_2 = k_2, k_4 = k_4, ylim = ylim, m = m)
+        return matrx_re
 
     def _1d_1vec_rk4(self,
                      matrx_ini,
@@ -200,7 +200,8 @@ class DiffSchemes:
                      mesh=True,
                      k_2=None,
                      k_4=None,
-                     ylim=None):
+                     ylim=None,
+                     m = None):
         matrx = matrx_ini.copy()
         t_x = self.dt / self.dx
         for i in range(1, len(self.t)):
@@ -216,13 +217,13 @@ class DiffSchemes:
             for time in t_plot:
                 if self.t[i] <= time < self.t[i + 1]:
                     self._plot_cfl(matrx, time, scheme,
-                                   cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, ylim=ylim)
+                                   cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, ylim=ylim, m = m)
         print(f'case: {self.name}, scheme: {scheme}')
         print(f'Space range: from {self.left_x} to {self.right_x}.')
         print('time interval:', self.dt)
         print('space interval:', self.dx)
         print('\n')
-        return 0
+        return matrx
 
     def _1d_3vec_tvd_rk3(self,
                          matrx_ini,
@@ -827,7 +828,7 @@ class DiffSchemes:
         self._1d_3vec_eulerian_rk4(matrx, F_gene, scheme, t_plot, entropy_fix = entropy_fix)
         return 0
 
-    def drp(self, t_plot, ylim = None):
+    def drp(self, t_plot, ylim = None, m = None):
         scheme = 'DRP'
         matrx = np.zeros(len(self.x))
         matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
@@ -856,10 +857,10 @@ class DiffSchemes:
             return F_part
 
         # compute and plot
-        self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim)
-        return 0
+        result = self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim, m = m)
+        return result
 
-    def drp_m(self, t_plot, ylim = None, Re_a = 0.2):
+    def drp_m(self, t_plot, ylim = None, Re_a = 0.2, m = None):
         scheme = 'DRP-M'
         matrx = np.zeros(len(self.x))
         matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
@@ -899,10 +900,10 @@ class DiffSchemes:
             return F_part
 
         # compute and plot
-        self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim)
-        return 0
+        result = self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim, m = m)
+        return result
 
-    def mdcd(self, t_plot, ylim = None):
+    def mdcd(self, t_plot, ylim = None, m = None):
         scheme = 'MDCD'
         matrx = np.zeros(len(self.x))
         matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
@@ -932,10 +933,10 @@ class DiffSchemes:
             return F_half  # -1 to l-1
 
         # compute and plot
-        self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim=ylim)
-        return 0
+        result = self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim=ylim, m = m)
+        return result
 
-    def sadrp(self, t_plot, ylim = None):
+    def sadrp(self, t_plot, ylim = None, m = None):
         scheme = 'SA-DRP'
         matrx = np.zeros(len(self.x))
         matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
@@ -1040,8 +1041,8 @@ class DiffSchemes:
             return F_half  # -1 to l-1
 
         # compute and plot
-        self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim = ylim)
-        return 0
+        result = self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim = ylim, m = m)
+        return result
 
     def tvd_minmod(self, t_plot, y_lim = None, entropy_fix = None):
         scheme = 'TVD'

@@ -1044,6 +1044,70 @@ class DiffSchemes:
         result = self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim = ylim, m = m)
         return result
 
+    def upwind1(self, t_plot, ylim = None, m = None):
+        scheme = '1_UPWIMD'
+        matrx = np.zeros(len(self.x))
+        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+
+        def F_part_gene(matrx_f_gene):
+            # The basic flux (0 to l-1)
+            F_matrx = self._get_1d_flux_basic(matrx_f_gene)
+            # expanded basic flux (-1 to l-1)
+            F_expand = np.zeros(len(self.x) + 1)
+            F_expand[1:] = F_matrx
+            F_expand[0] = F_matrx[-1]
+
+            # discretized \part f\over\part x
+            F_part = F_matrx - F_expand[:-1]
+            return F_part
+
+        # compute and plot
+        result = self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim, m = m)
+        return result
+
+    def upwind2(self, t_plot, ylim = None, m = None):
+        scheme = '2_UPWIMD'
+        matrx = np.zeros(len(self.x))
+        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+
+        def F_part_gene(matrx_f_gene):
+            # The basic flux (0 to l-1)
+            F_matrx = self._get_1d_flux_basic(matrx_f_gene)
+            # expanded basic flux (-2 to l-1)
+            F_expand = np.zeros(len(self.x) + 2)
+            F_expand[2:] = F_matrx
+            F_expand[:2] = F_matrx[-2:]
+
+            # discretized \part f\over\part x
+            F_part = 0.5 * (3*F_matrx - 4*F_expand[1:-1] + F_expand[:-2])
+            return F_part
+
+        # compute and plot
+        result = self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim, m=m)
+        return result
+
+    def upwind3(self, t_plot, ylim = None, m = None):
+        scheme = '3_UPWIMD'
+        matrx = np.zeros(len(self.x))
+        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+
+        def F_part_gene(matrx_f_gene):
+            # The basic flux (0 to l-1)
+            F_matrx = self._get_1d_flux_basic(matrx_f_gene)
+            # expanded basic flux (-2 to l)
+            F_expand = np.zeros(len(self.x) + 3)
+            F_expand[2:-1] = F_matrx
+            F_expand[-1] = F_matrx[0]
+            F_expand[:2] = F_matrx[-2:]
+
+            # discretized \part f\over\part x
+            F_part = (2 * F_expand[3:] + 3 * F_matrx - 6 * F_expand[1:-2] + F_expand[:-3]) / 6
+            return F_part
+
+        # compute and plot
+        result = self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim, m=m)
+        return result
+
     def tvd_minmod(self, t_plot, y_lim = None, entropy_fix = None):
         scheme = 'TVD'
         gamma = self.gamma

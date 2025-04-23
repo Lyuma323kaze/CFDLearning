@@ -1,6 +1,9 @@
 from Diff_schme import DiffSchemes
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
+import os
+import json
 
 
 
@@ -16,7 +19,7 @@ t_terminate = 1
 
 
 # mesh parameters
-mx_ls = [64, 128, 256, 512, 1024]
+mx_ls = [8192, 16384]
 mx_single = [256]
 mx = 256    # mesh point number
 c = 0.2 # CFL number
@@ -70,6 +73,25 @@ def get_results(mx_ls):
         results.append(result_subls)
     return results     # (len(mx_ls), 4)
 
+def get_results_upwind(mx_ls):
+    results = []
+
+    def ini_condit(x):
+        return ini_condition(x)
+
+    for mx_ in mx_ls:
+        dx_ = (right_x - left_x) / (mx_ - 1)
+        dt_ = c * dx_ / a
+        x_range_ = np.arange(left_x, right_x + dx_, dx_)
+        t_range_ = np.arange(0, t_terminate + 2 * dt_, dt_)
+        item = DiffSchemes(name, dt_, dx_, x_range_, t_range_, c=c, ini_condi=ini_condit, folder=folder)
+        result_up1 = item.upwind1(t_plot, y_lim)
+        result_up2 = item.upwind2(t_plot, y_lim)
+        result_up3 = item.upwind3(t_plot, y_lim)
+        result_subls = [result_up1, result_up2, result_up3]
+        results.append(result_subls)
+    return results  # (len(mx_ls), 3)
+
 def postprocess(results, solution):
     colors = ['r', 'brown', 'b', 'g']
     markers = ['o', 'v', 'o', '^']
@@ -91,15 +113,15 @@ def postprocess(results, solution):
 
 def compute_l1_loss(result, acc_solu):
     # result.shape = (4,)
-    loss = np.zeros(4)
-    for i in range(4):
+    loss = np.zeros(len(result))
+    for i in range(len(result)):
         diff = result[i] - acc_solu
         N_ = len(result[0])
         loss[i] = (np.abs(diff) / N_).sum()
     return loss
 
 def compute_all_l1_loss(results, mx_ls_):
-    losses = np.zeros((len(results), 4))
+    losses = np.zeros((len(results), len(results[0])))
     for i in range(len(results)):
         dx_ = (right_x - left_x) / (mx_ls_[i] - 1)
         x_range_ = np.arange(left_x, right_x + dx_, dx_)
@@ -122,11 +144,19 @@ accurate_solution = accu_solution(x_range, t_terminate)
 postprocess(results_single, accurate_solution)
 loss_single = compute_l1_loss(results_single[0], accurate_solution)'''
 
+''
+'''if not os.path.exists('proj1_results.pkl'):
+    results = get_results(mx_ls)
+    with open('proj1_results.pkl', 'wb', encoding='utf-8') as fw:
+        pickle.dump(results, fw)
+else:
+    with open('proj1_results.pkl', 'rb', encoding='utf-8') as fr:
+        results = pickle.load(fr)'''
 
-
-results = get_results(mx_ls)
+# results = get_results(mx_ls)
+results_upwind =get_results_upwind(mx_ls)
 accurate_solution = accu_solution(x_range, t_terminate)
-losses = compute_all_l1_loss(results, mx_ls)
+losses = compute_all_l1_loss(results_upwind, mx_ls)
 print(losses)
-orders = evaluate_precision(losses, mx_ls)
-print(orders)
+# orders = evaluate_precision(losses, mx_ls)
+# print(orders)

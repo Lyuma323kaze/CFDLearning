@@ -905,8 +905,7 @@ class DiffSchemes:
 
     def mdcd(self, t_plot, ylim = None, m = None):
         scheme = 'MDCD'
-        matrx = np.zeros(len(self.x))
-        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        matrx = self._periodic_BDC_initialize_1Dscalar()
         l = len(matrx)
 
         # Flux generator

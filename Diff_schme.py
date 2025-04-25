@@ -831,8 +831,7 @@ class DiffSchemes:
     # The periodic BDC to be reconstructed
     def drp(self, t_plot, ylim = None, m = None):
         scheme = 'DRP'
-        matrx = np.zeros(len(self.x))
-        matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])
+        matrx = self._periodic_BDC_initialize_1Dscalar()
         # global parameters
         a0 = 0
         a1 = 0.79926643

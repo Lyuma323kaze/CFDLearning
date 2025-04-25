@@ -1042,6 +1042,14 @@ class DiffSchemes:
             co_matrx_C2[i, i - 1] = -1
         co_matrx_C2 = co_matrx_C2 / 3
 
+        # sparse matrix
+        co_matrx_S1 = csr_matrix(co_matrx_S1)
+        co_matrx_S2 = csr_matrix(co_matrx_S2)
+        co_matrx_S3 = csr_matrix(co_matrx_S3)
+        co_matrx_S4 = csr_matrix(co_matrx_S4)
+        co_matrx_C1 = csr_matrix(co_matrx_C1)
+        co_matrx_C2 = csr_matrix(co_matrx_C2)
+
         # Flux generator
         def F_gene(matrx_f_gene):
             # The basic flux (0 to l-1)

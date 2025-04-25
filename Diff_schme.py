@@ -1106,12 +1106,20 @@ class DiffSchemes:
             F_expand[:3] = F_matrx[-4:-1]
             F_expand[-4:] = F_matrx[:4]
             # half_node flux (-1 to l-1)
-            F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
-                      + (-1.5 * g_disp - 2.5 * g_diss - 1/12) * F_expand[1: -4]
-                      + (g_disp + 5 * g_diss + 7/12) * F_expand[2: -3]
-                      + (g_disp - 5 * g_diss + 7/12) * F_expand[3: -2]
-                      + (-1.5 * g_disp + 2.5 * g_diss - 1/12) * F_expand[4: -1]
-                      + (0.5 * g_disp - 0.5 * g_diss) * F_expand[5:])
+            windows = sliding_window_view(F_expand, 6)
+
+            # Precompute coefficients matrix
+            coeffs = np.array([
+                0.5 * (g_diss + g_disp),
+                -1.5 * g_disp - 2.5 * g_diss - 1 / 12,
+                g_disp + 5 * g_diss + 7 / 12,
+                g_disp - 5 * g_diss + 7 / 12,
+                -1.5 * g_disp + 2.5 * g_diss - 1 / 12,
+                0.5 * (g_disp - g_diss)
+            ]).T
+
+            # Vectorized dot product
+            F_half = np.einsum('ij,ij->i', windows, coeffs, optimize='optimal')
             return F_half  # -1 to l-1
 
         # compute and plot

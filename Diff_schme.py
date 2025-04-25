@@ -1056,12 +1056,12 @@ class DiffSchemes:
             F_matrx = self._get_1d_flux_basic(matrx_f_gene)
             # 0 to l-1
             F_short = F_matrx[:-1]
-            S1 = np.einsum('ij,j->i',co_matrx_S1, F_short, optimize = "optimal")
-            S2 = np.einsum('ij,j->i',co_matrx_S2, F_short, optimize = "optimal")
-            S3 = np.einsum('ij,j->i',co_matrx_S3, F_short, optimize = "optimal")
-            S4 = np.einsum('ij,j->i',co_matrx_S4, F_short, optimize = "optimal")
-            C1 = np.einsum('ij,j->i',co_matrx_C1, F_short, optimize = "optimal")
-            C2 = np.einsum('ij,j->i',co_matrx_C2, F_short, optimize = "optimal")
+            S1 = co_matrx_S1.dot(F_short)
+            S2 = co_matrx_S2.dot(F_short)
+            S3 = co_matrx_S3.dot(F_short)
+            S4 = co_matrx_S4.dot(F_short)
+            C1 = co_matrx_C1.dot(F_short)
+            C2 = co_matrx_C2.dot(F_short)
             S1 = np.concatenate((S1, [S1[0]]), axis = 0)
             S2 = np.concatenate((S2, [S2[0]]), axis = 0)
             S3 = np.concatenate((S3, [S3[0]]), axis = 0)

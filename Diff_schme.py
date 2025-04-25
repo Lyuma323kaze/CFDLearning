@@ -1007,12 +1007,6 @@ class DiffSchemes:
         l_ = l-1
 
         # The coefficient matrix of S1 to C2 (0 to l-2)
-
-
-
-
-
-
         # S1
         @jit
         def det_S1():

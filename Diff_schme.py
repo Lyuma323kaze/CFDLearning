@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 # import time, sys
 import os
 import cupy as cp
+from scipy.sparse import csr_matrix
+from numpy.lib.stride_tricks import sliding_window_view
 
 
 # Saving folder

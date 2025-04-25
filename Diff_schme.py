@@ -828,6 +828,7 @@ class DiffSchemes:
         self._1d_3vec_eulerian_rk4(matrx, F_gene, scheme, t_plot, entropy_fix = entropy_fix)
         return 0
 
+    # The periodic BDC to be reconstructed
     def drp(self, t_plot, ylim = None, m = None):
         scheme = 'DRP'
         matrx = np.zeros(len(self.x))

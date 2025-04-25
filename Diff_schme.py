@@ -5,6 +5,7 @@ import os
 import cupy as cp
 from scipy.sparse import csr_matrix
 from numpy.lib.stride_tricks import sliding_window_view
+from numba import jit, prange
 
 
 # Saving folder
@@ -1006,49 +1007,79 @@ class DiffSchemes:
         l_ = l-1
 
         # The coefficient matrix of S1 to C2 (0 to l-2)
-        co_matrx_S1 = np.zeros([len(self.x)-1, len(self.x)-1])
-        co_matrx_S2 = np.zeros([len(self.x)-1, len(self.x)-1])
-        co_matrx_S3 = np.zeros([len(self.x)-1, len(self.x)-1])
-        co_matrx_S4 = np.zeros([len(self.x)-1, len(self.x)-1])
-        co_matrx_C1 = np.zeros([len(self.x)-1, len(self.x)-1])
-        co_matrx_C2 = np.zeros([len(self.x)-1, len(self.x)-1])
-        co_matrx_S1 = np.ascontiguousarray(co_matrx_S1)
-        co_matrx_S2 = np.ascontiguousarray(co_matrx_S2)
-        co_matrx_S3 = np.ascontiguousarray(co_matrx_S3)
-        co_matrx_S4 = np.ascontiguousarray(co_matrx_S4)
-        co_matrx_C1 = np.ascontiguousarray(co_matrx_C1)
-        co_matrx_C2 = np.ascontiguousarray(co_matrx_C2)
+
+
+
+
+
+
         # S1
-        for i in range(l_):
-            co_matrx_S1[i, i] = -2
-            co_matrx_S1[i, i+1 - ((i+1) // l_) * l_] = 1
-            co_matrx_S1[i, i - 1] = 1
+        @jit
+        def det_S1():
+            co_matrx_S1 = np.zeros((l_, l_))
+            co_matrx_S1 = np.ascontiguousarray(co_matrx_S1)
+            for i in prange(l_):
+                co_matrx_S1[i, i] = -2
+                co_matrx_S1[i, i+1 - ((i+1) // l_) * l_] = 1
+                co_matrx_S1[i, i - 1] = 1
+            return co_matrx_S1
         # S2
-        for i in range(l_):
-            co_matrx_S2[i, i] = -2
-            co_matrx_S2[i, i+2 - ((i+2) // l_) * l_] = 1
-            co_matrx_S2[i, i - 2] = 1
-        co_matrx_S2 = co_matrx_S2 * 0.25
+        @jit
+        def det_S2():
+            co_matrx_S2 = np.zeros((l_, l_))
+            co_matrx_S2 = np.ascontiguousarray(co_matrx_S2)
+            for i in prange(l_):
+                co_matrx_S2[i, i] = -2
+                co_matrx_S2[i, i+2 - ((i+2) // l_) * l_] = 1
+                co_matrx_S2[i, i - 2] = 1
+            co_matrx_S2 = co_matrx_S2 * 0.25
+            return co_matrx_S2
         # S3
-        for i in range(l_):
-            co_matrx_S3[i, i] = 1
-            co_matrx_S3[i, i+1 - ((i+1) // l_) * l_] = -2
-            co_matrx_S3[i, i+2 - ((i+2) // l_) * l_] = 1
+        @jit
+        def det_S3():
+            co_matrx_S3 = np.zeros((l_, l_))
+            co_matrx_S3 = np.ascontiguousarray(co_matrx_S3)
+            for i in prange(l_):
+                co_matrx_S3[i, i] = 1
+                co_matrx_S3[i, i+1 - ((i+1) // l_) * l_] = -2
+                co_matrx_S3[i, i+2 - ((i+2) // l_) * l_] = 1
+            return co_matrx_S3
         # S4
-        for i in range(l_):
-            co_matrx_S4[i, i - 1] = 1
-            co_matrx_S4[i, i+1 - ((i+1) // l_) * l_] = -2
-            co_matrx_S4[i, i+3 - ((i+3) // l_) * l_] = 1
-        co_matrx_S4 = co_matrx_S4 * 0.25
+        @jit
+        def det_S4():
+            co_matrx_S4 = np.zeros((l_, l_))
+            co_matrx_S4 = np.ascontiguousarray(co_matrx_S4)
+            for i in prange(l_):
+                co_matrx_S4[i, i - 1] = 1
+                co_matrx_S4[i, i+1 - ((i+1) // l_) * l_] = -2
+                co_matrx_S4[i, i+3 - ((i+3) // l_) * l_] = 1
+            co_matrx_S4 = co_matrx_S4 * 0.25
+            return co_matrx_S4
         # C1
-        for i in range(l_):
-            co_matrx_C1[i, i] = -1
-            co_matrx_C1[i, i+1 - ((i+1) // l_) * l_] = 1
+        @jit
+        def det_C1():
+            co_matrx_C1 = np.zeros((l_, l_))
+            co_matrx_C1 = np.ascontiguousarray(co_matrx_C1)
+            for i in prange(l_):
+                co_matrx_C1[i, i] = -1
+                co_matrx_C1[i, i+1 - ((i+1) // l_) * l_] = 1
+            return co_matrx_C1
         # C2
-        for i in range(l_):
-            co_matrx_C2[i, i+2 - ((i+2) // l_) * l_] = 1
-            co_matrx_C2[i, i - 1] = -1
-        co_matrx_C2 = co_matrx_C2 / 3
+        @jit
+        def det_C2():
+            co_matrx_C2 = np.zeros((l_, l_))
+            co_matrx_C2 = np.ascontiguousarray(co_matrx_C2)
+            for i in prange(l_):
+                co_matrx_C2[i, i+2 - ((i+2) // l_) * l_] = 1
+                co_matrx_C2[i, i - 1] = -1
+            co_matrx_C2 = co_matrx_C2 / 3
+            return co_matrx_C2
+        co_matrx_S1 = det_S1()
+        co_matrx_S2 = det_S2()
+        co_matrx_S3 = det_S3()
+        co_matrx_S4 = det_S4()
+        co_matrx_C1 = det_C1()
+        co_matrx_C2 = det_C2()
 
         # sparse matrix
         co_matrx_S1 = csr_matrix(co_matrx_S1)
@@ -1098,26 +1129,24 @@ class DiffSchemes:
             # g_disp (-1 to l-1)
             mask_p0 = (0 <= k_esw) & (k_esw < 0.01)
             mask_p1 = (0.01 <= k_esw) & (k_esw < 2.5)
-            g_disp_ = 0.1985842 * np.ones(len(self.x))
             expr_disp = (k_esw
                          + np.sin(2 * k_esw) / 6
                          - 4 * np.sin(k_esw) / 3) / (np.sin(3 * k_esw) - 4 * np.sin(2 * k_esw) + 5 * np.sin(k_esw))
             g_disp_ = np.select([mask_p0, mask_p1], [1 / 30, expr_disp], default=0.1985842)
-            g_disp = np.zeros(l + 1)
+            g_disp = np.empty(l + 1)
             g_disp[1:] = g_disp_
             g_disp[0] = g_disp_[-1]
             # g_diss (-1 to l-1)
             mask_s0 = (0 <= k_esw) & (k_esw <= 1)
-            g_diss_ = 0.001 * np.ones(len(self.x))
-            expr_diss = np.minimum(0.012,
-                               0.001 + 0.011 * np.sqrt((k_esw[~mask_s0] - 1) / (np.pi - 1)))
-            g_diss_[~mask_s0] = expr_diss
-            g_diss = np.zeros(l + 1)
+            safe_k = np.where(k_esw > 1, (k_esw - 1) / (np.pi - 1), 0)
+            expr_diss = np.minimum(0.012, 0.001 + 0.011 * np.sqrt(safe_k))
+            g_diss_ = np.where(mask_s0, 0.001, expr_diss)
+            g_diss = np.empty(l + 1)
             g_diss[1:] = g_diss_
             g_diss[0] = g_diss_[-1]
 
             # expanded basic flux (-3 to l+2)
-            F_expand = np.zeros(len(self.x) + 6)
+            F_expand = np.empty(len(self.x) + 6)
             F_expand[3:-3] = F_matrx
             F_expand[:3] = F_matrx[-4:-1]
             F_expand[-4:] = F_matrx[:4]

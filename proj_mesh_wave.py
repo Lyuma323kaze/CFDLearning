@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 import os
-import json
 
 
 
@@ -19,7 +18,7 @@ t_terminate = 1
 
 
 # mesh parameters
-mx_ls = [2048, 3000]
+mx_ls = [3250]
 mx_single = [256]
 mx = 256    # mesh point number
 c = 0.2 # CFL number

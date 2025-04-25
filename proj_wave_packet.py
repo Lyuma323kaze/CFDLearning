@@ -114,9 +114,9 @@ def plot_loss(results, solution, m_ls, mx = 1000):
 
 ana_solution = analytical_solution(x_range, t_terminate, m = m)
 
-'''mx_loss = 1000
+mx_loss = 1000
 results = np.array(get_results(m_ls, mx = mx_loss))
-plot_loss(results, ana_solution, m_ls, mx = mx_loss)'''
+plot_loss(results, ana_solution, m_ls, mx = mx_loss)
 
 result_20 = get_results(m_ls_single, mx)
 accurate_postprocess(result_20, ana_solution)

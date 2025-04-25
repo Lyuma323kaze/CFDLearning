@@ -137,11 +137,12 @@ def evaluate_precision(losses, mx_ls_):
         orders.append((log_values[j+1] - log_values[j]) / np.log(mx_ls_[j] / mx_ls_[j+1]))
     return np.array(orders)
 
-'''results_single = np.array(get_results(mx_single))
+
+results_single = np.array(get_results(mx_single))
 accurate_solution = accu_solution(x_range, t_terminate)
 postprocess(results_single, accurate_solution)
 loss_single = compute_l1_loss(results_single[0], accurate_solution)
-print(loss_single)'''
+print(loss_single)
 
 
 
@@ -155,16 +156,15 @@ else:
     with open('Proj1/mesh_wave_results.pkl', 'rb') as fr:
         results = pickle.load(fr)
 
-
 accurate_solution = accu_solution(x_range, t_terminate)
 
 losses = compute_all_l1_loss(results, mx_ls)
 print(losses)
-'''orders = evaluate_precision(losses, mx_ls)
-print(orders)'''
+orders = evaluate_precision(losses, mx_ls)
+print(orders)
 
-'''results_upwind =get_results_upwind(mx_ls)
+results_upwind =get_results_upwind(mx_ls)
 losses_upwind = compute_all_l1_loss(results_upwind, mx_ls)
 print(losses_upwind)
 orders_upwind = evaluate_precision(losses_upwind, mx_ls)
-print(orders_upwind)'''
+print(orders_upwind)

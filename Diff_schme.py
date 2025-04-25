@@ -860,7 +860,7 @@ class DiffSchemes:
         result = self._1d_1vec_rk4(matrx, F_part_gene, scheme, t_plot, ylim=ylim, m = m)
         return result
 
-    def drp_m(self, t_plot, ylim = None, Re_a = 0.2, m = None):
+    def drp_m(self, t_plot, ylim = None, Re_a = 1, m = None):
         scheme = 'DRP-M'
         matrx = np.zeros(len(self.x))
         matrx = np.array([self.init_condition(self.x[0] + i * self.dx) for i in range(matrx.shape[0])])

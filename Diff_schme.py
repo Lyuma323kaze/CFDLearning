@@ -1054,18 +1054,19 @@ class DiffSchemes:
             S4 = np.einsum('ij,j->i',co_matrx_S4, F_short, optimize = "optimal")
             C1 = np.einsum('ij,j->i',co_matrx_C1, F_short, optimize = "optimal")
             C2 = np.einsum('ij,j->i',co_matrx_C2, F_short, optimize = "optimal")
-            S1_ele = np.expand_dims(S1[0], axis = 0)
-            S2_ele = np.expand_dims(S2[0], axis = 0)
-            S3_ele = np.expand_dims(S3[0], axis = 0)
-            S4_ele = np.expand_dims(S4[0], axis = 0)
-            C1_ele = np.expand_dims(C1[0], axis = 0)
-            C2_ele = np.expand_dims(C2[0], axis = 0)
-            S1 = np.concatenate((S1, S1_ele), axis = 0)
-            S2 = np.concatenate((S2, S2_ele), axis = 0)
-            S3 = np.concatenate((S3, S3_ele), axis = 0)
-            S4 = np.concatenate((S4, S4_ele), axis = 0)
-            C1 = np.concatenate((C1, C1_ele), axis = 0)
-            C2 = np.concatenate((C2, C2_ele), axis = 0)
+            S1 = np.concatenate((S1, [S1[0]]), axis = 0)
+            S2 = np.concatenate((S2, [S2[0]]), axis = 0)
+            S3 = np.concatenate((S3, [S3[0]]), axis = 0)
+            S4 = np.concatenate((S4, [S4[0]]), axis = 0)
+            C1 = np.concatenate((C1, [C1[0]]), axis = 0)
+            C2 = np.concatenate((C2, [C2[0]]), axis = 0)
+            # sum and diffs
+            s1_p_s2 = S1 + S2
+            s1_m_s2 = S1 - S2
+            s3_p_s4 = S3 + S4
+            s3_m_s4 = S3 - S4
+            c1_p_c2 = C1 + C2
+            c1_m_c2 = C1 - C2
             # k_esw (0 to l-1)
             e = 1e-8
             expr = (np.abs(np.abs(S1 + S2) - np.abs(S1 - S2))

@@ -1086,8 +1086,7 @@ class DiffSchemes:
             expr_disp = (k_esw
                          + np.sin(2 * k_esw) / 6
                          - 4 * np.sin(k_esw) / 3) / (np.sin(3 * k_esw) - 4 * np.sin(2 * k_esw) + 5 * np.sin(k_esw))
-            g_disp_[mask_p0] = 1 / 30
-            g_disp_[mask_p1] = expr_disp[mask_p1]
+            g_disp_ = np.select([mask_p0, mask_p1], [1 / 30, expr_disp], default=0.1985842)
             g_disp = np.zeros(l + 1)
             g_disp[1:] = g_disp_
             g_disp[0] = g_disp_[-1]

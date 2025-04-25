@@ -921,8 +921,8 @@ class DiffSchemes:
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
             F_expand[3:-3] = F_matrx
-            F_expand[:3] = F_matrx[-3:]
-            F_expand[-3:] = F_matrx[:3]
+            F_expand[:3] = F_matrx[-4:-1]
+            F_expand[-4:] = F_matrx[:4]
             # half_node flux (-1 to l-1)
             F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
                       + (-1.5 * g_disp - 2.5 * g_diss - 1 / 12) * F_expand[1: -4]

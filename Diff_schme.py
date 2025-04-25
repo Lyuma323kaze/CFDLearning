@@ -1012,6 +1012,12 @@ class DiffSchemes:
         co_matrx_S4 = np.zeros([len(self.x)-1, len(self.x)-1])
         co_matrx_C1 = np.zeros([len(self.x)-1, len(self.x)-1])
         co_matrx_C2 = np.zeros([len(self.x)-1, len(self.x)-1])
+        co_matrx_S1 = np.ascontiguousarray(co_matrx_S1)
+        co_matrx_S2 = np.ascontiguousarray(co_matrx_S2)
+        co_matrx_S3 = np.ascontiguousarray(co_matrx_S3)
+        co_matrx_S4 = np.ascontiguousarray(co_matrx_S4)
+        co_matrx_C1 = np.ascontiguousarray(co_matrx_C1)
+        co_matrx_C2 = np.ascontiguousarray(co_matrx_C2)
         # S1
         for i in range(l_):
             co_matrx_S1[i, i] = -2

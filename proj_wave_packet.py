@@ -45,8 +45,7 @@ def ini_condition(x, m = m):
 def analytical_solution(x, t, m = m):
     value = 0
     for i in range(m):
-        value += np.sin(2 * np.pi * (i+1) * (x + t+0.038))  # transition fix
-        # value += np.sin(2 * np.pi * (i+1) * (x + t))      # original solution
+        value += np.sin(2 * np.pi * (i+1) * (x + t))      # original solution
     value /= m
     return value
 
@@ -68,9 +67,9 @@ def accurate_postprocess(results, solution):
     plt.ylabel("Velocity")
     plt.grid(True)
     plt.legend()
-    plt.savefig('Proj1\Result at t = 10.png')
+    plt.savefig(r'Proj1\Fig_wave_packet\Result at t = 10.png')
 
-def compute_l2_loss(result, solution, delta_x):
+def compute_l2_loss(result, solution):
     diff = (solution - result)
     loss = np.linalg.norm(diff)
     return loss
@@ -102,23 +101,23 @@ def plot_loss(results, solution, m_ls, mx = 1000):
     for i in range(len(m_ls)):
         result_ls = results[i]
         for j in range(len(result_ls)):
-            loss = compute_l2_loss(result_ls[j], solution, (right_x - left_x) / (mx - 1))
+            loss = compute_l2_loss(result_ls[j], solution)
             losses[j, i] = loss
     for i in range(4):
         plt.plot(m_ls, losses[i], linestyle='-',marker = markers[i], color=colors[i], label=labels[i])
-    plt.xlabel("x")
+    plt.xlabel("m")
     plt.ylabel("L2 loss")
     plt.grid(True)
     plt.legend()
-    plt.savefig('Proj1\Loss at t = 10.png')
+    plt.savefig(f'Proj1/Fig_wave_packet/Loss at t = 10@N = {mx}.png')
 
-
-
-results = np.array(get_results(m_ls, mx = 1000))
-# result_20 = get_results(m_ls_single, mx)
 
 ana_solution = analytical_solution(x_range, t_terminate, m = m)
 
-# accurate_postprocess(result_20, ana_solution)
+'''mx_loss = 1000
+results = np.array(get_results(m_ls, mx = mx_loss))
+plot_loss(results, ana_solution, m_ls, mx = mx_loss)'''
 
-plot_loss(results, ana_solution, m_ls)
+result_20 = get_results(m_ls_single, mx)
+accurate_postprocess(result_20, ana_solution)
+

@@ -19,7 +19,7 @@ t_terminate = 1
 
 
 # mesh parameters
-mx_ls = [8192, 16384]
+mx_ls = [2048, 3000]
 mx_single = [256]
 mx = 256    # mesh point number
 c = 0.2 # CFL number
@@ -43,6 +43,7 @@ def ini_condition(x, m = 64):
     addition = 0
     epsilon = 0.1
     k0 = 24
+    np.random.seed(941)
     def ek(k, k0):
         return (k/k0)**4 * np.exp(-2*(k/k0)**2)
     for k in range(m):
@@ -75,10 +76,8 @@ def get_results(mx_ls):
 
 def get_results_upwind(mx_ls):
     results = []
-
     def ini_condit(x):
         return ini_condition(x)
-
     for mx_ in mx_ls:
         dx_ = (right_x - left_x) / (mx_ - 1)
         dt_ = c * dx_ / a
@@ -109,7 +108,7 @@ def postprocess(results, solution):
     plt.ylabel("Velocity")
     plt.grid(True)
     plt.legend()
-    plt.savefig('Proj1\Fig_mesh_wave\Result at t = 10.png')
+    plt.savefig('Proj1/Fig_mesh_wave/Result at t = 10.png')
 
 def compute_l1_loss(result, acc_solu):
     # result.shape = (4,)
@@ -134,29 +133,39 @@ def evaluate_precision(losses, mx_ls_):
     log_values = np.zeros_like(losses)
     orders = []
     for i in range(len(mx_ls_)):
-        log_values[i] = np.log2(losses[i])
+        log_values[i] = np.log(losses[i])
     for j in range(len(mx_ls_)-1):
-        orders.append(log_values[j+1] - log_values[j])
-    return -np.array(orders)
+        orders.append((log_values[j+1] - log_values[j]) / np.log(mx_ls_[j] / mx_ls_[j+1]))
+    return np.array(orders)
 
 '''results_single = np.array(get_results(mx_single))
 accurate_solution = accu_solution(x_range, t_terminate)
 postprocess(results_single, accurate_solution)
-loss_single = compute_l1_loss(results_single[0], accurate_solution)'''
+loss_single = compute_l1_loss(results_single[0], accurate_solution)
+print(loss_single)'''
 
-''
-'''if not os.path.exists('proj1_results.pkl'):
+
+
+recompute = True
+
+if (not os.path.exists('Proj1/mesh_wave_results.pkl')) or recompute:
     results = get_results(mx_ls)
-    with open('proj1_results.pkl', 'wb', encoding='utf-8') as fw:
+    with open('Proj1/mesh_wave_results.pkl', 'wb') as fw:
         pickle.dump(results, fw)
 else:
-    with open('proj1_results.pkl', 'rb', encoding='utf-8') as fr:
-        results = pickle.load(fr)'''
+    with open('Proj1/mesh_wave_results.pkl', 'rb') as fr:
+        results = pickle.load(fr)
 
-# results = get_results(mx_ls)
-results_upwind =get_results_upwind(mx_ls)
+
 accurate_solution = accu_solution(x_range, t_terminate)
-losses = compute_all_l1_loss(results_upwind, mx_ls)
+
+losses = compute_all_l1_loss(results, mx_ls)
 print(losses)
-# orders = evaluate_precision(losses, mx_ls)
-# print(orders)
+'''orders = evaluate_precision(losses, mx_ls)
+print(orders)'''
+
+'''results_upwind =get_results_upwind(mx_ls)
+losses_upwind = compute_all_l1_loss(results_upwind, mx_ls)
+print(losses_upwind)
+orders_upwind = evaluate_precision(losses_upwind, mx_ls)
+print(orders_upwind)'''

@@ -845,8 +845,8 @@ class DiffSchemes:
             # expanded basic flux (-3 to l+2)
             F_expand = np.zeros(len(self.x) + 6)
             F_expand[3:-3] = F_matrx
-            F_expand[:3] = F_matrx[-3:]
-            F_expand[-3:] = F_matrx[:3]
+            F_expand[:3] = F_matrx[-4:-1]
+            F_expand[-4:] = F_matrx[:4]
 
             # discretized \part f\over\part x
             F_part = a3 * (-F_expand[: -6] + F_expand[6:])\

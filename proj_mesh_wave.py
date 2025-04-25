@@ -67,7 +67,7 @@ def get_results(mx_ls):
         t_range_ = np.arange(0, t_terminate + 2 * dt_, dt_)
         item = DiffSchemes(name, dt_, dx_, x_range_, t_range_, c=c, ini_condi=ini_condit, folder=folder)
         result_drp = item.drp(t_plot, y_lim)
-        result_drp_m = item.drp_m(t_plot, y_lim, Re_a=20)
+        result_drp_m = item.drp_m(t_plot, y_lim, Re_a=40)
         result_sadrp = item.sadrp(t_plot, y_lim)
         result_mdcd = item.mdcd(t_plot, y_lim)
         result_subls = [result_drp, result_drp_m, result_sadrp, result_mdcd]

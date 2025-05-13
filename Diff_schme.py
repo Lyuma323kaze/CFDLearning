@@ -6,6 +6,9 @@ import cupy as cp
 from scipy.sparse import csr_matrix
 from numpy.lib.stride_tricks import sliding_window_view
 from numba import jit, prange
+import jax.numpy as jnp
+from jax import jit as jit_jax
+from jax.experimental import sparse
 
 
 # Saving folder
@@ -234,7 +237,7 @@ class DiffSchemes:
         print('\n')
         return matrx
 
-    def _1d_1vec_conserv_rk4_cp(self,
+    def _1d_1vec_conserv_rk4_jnp(self,
                              matrx_ini,
                              F_gene: callable,
                              scheme: str,
@@ -247,16 +250,17 @@ class DiffSchemes:
         matrx = matrx_ini.copy()
 
         # discrete \part f\over\part x
+        @jit_jax
         def F_part_gene(matrx_gene):
             F_half = F_gene(matrx_gene) # -1 to l-1
             F_part = F_half[1:] - F_half[:-1]
             return F_part
 
-        matrx_re = self._1d_1vec_rk4_cp(matrx, F_part_gene, scheme, t_plot,
+        matrx_re = self._1d_1vec_rk4_jnp(matrx, F_part_gene, scheme, t_plot,
                           mesh = mesh, k_2 = k_2, k_4 = k_4, ylim = ylim, m = m)
         return matrx_re
 
-    def _1d_1vec_rk4_cp(self,
+    def _1d_1vec_rk4_jnp(self,
                         matrx_ini,
                         F_part_gene: callable,
                         scheme: str,
@@ -268,6 +272,8 @@ class DiffSchemes:
                         m=None):
         matrx = matrx_ini.copy()
         t_x = self.dt / self.dx
+        results = []
+        times = []
         for i in range(1, len(self.t)):
             matrx_f = matrx.copy()
             F_part = F_part_gene(matrx_f)  # 0 to l-1
@@ -280,10 +286,15 @@ class DiffSchemes:
             matrx = matrx_f - t_x * F_part_3
             for time in t_plot:
                 if self.t[i] <= time < self.t[i + 1]:
-                    matrx_n = matrx.get()
-                    self._plot_cfl(matrx_n, time, scheme,
-                                   cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, ylim=ylim, m=m)
-        matrx = matrx.get()
+                    results.append(matrx)
+                    times.append(time)
+        for i in range(len(results)):
+            result = results[i]
+            time = times[i]
+            result = np.array(result)
+            self._plot_cfl(result, time, scheme,
+                           cfl=False, mesh=mesh, k_2=k_2, k_4=k_4, ylim=ylim, m=m)
+        matrx = np.array(matrx)
         print(f'case: {self.name}, scheme: {scheme}')
         print(f'Space range: from {self.left_x} to {self.right_x}.')
         print('time interval:', self.dt)
@@ -1165,113 +1176,152 @@ class DiffSchemes:
         result = self._1d_1vec_conserv_rk4(matrx, F_gene, scheme, t_plot, ylim = ylim, m = m)
         return result
 
-    def sadrp_cp(self, t_plot, ylim=None, m=None):
+    def sadrp_jnp(self, t_plot, ylim=None, m=None):
         scheme = 'SA-DRP'
         matrx = self._periodic_BDC_initialize_1Dscalar()
-        matrx_cp = cp.asarray(matrx)
+        matrx_jnp = jnp.asarray(matrx)
         l = len(matrx)
         l_ = l - 1
 
         # The coefficient matrix of S1 to C2 (0 to l-2) on GPU
         # S1
-        co_matrx_S1 = cp.diag(cp.full(l_, -2)) + cp.diag(cp.ones(l_ - 1), k=1) + cp.diag(cp.ones(l_ - 1), k=-1)
-        co_matrx_S1[0, l_ - 1] = 1
-        co_matrx_S1[l_ - 1, 0] = 1
+        co_matrx_S1 = jnp.diag(jnp.full(l_, -2)) + jnp.diag(jnp.ones(l_ - 1), k=1) + jnp.diag(jnp.ones(l_ - 1), k=-1)
+        co_matrx_S1.at[0, l_ - 1].set(1)
+        co_matrx_S1.at[l_ - 1, 0].set(1)
+        csr_S1 = csr_matrix(co_matrx_S1)
+        co_matrx_S1 = sparse.BCSR(
+            (jnp.array(csr_S1.data),
+              jnp.array(csr_S1.indices),
+                jnp.array(csr_S1.indptr)),
+                  shape=(l_, l_))
         # S2
-        co_matrx_S2 = cp.diag(cp.full(l_, -2)) + cp.diag(cp.ones(l_ - 2), k=2) + cp.diag(cp.ones(l_ - 2), k=-2)
-        co_matrx_S2[0, l_ - 2] = 1
-        co_matrx_S2[1, l_ - 1] = 1
-        co_matrx_S2[l_ - 2, 0] = 1
-        co_matrx_S2[l_ - 1, 1] = 1
-        co_matrx_S2 *= 0.25
+        co_matrx_S2 = jnp.diag(jnp.full(l_, -2)) + jnp.diag(jnp.ones(l_ - 2), k=2) + jnp.diag(jnp.ones(l_ - 2), k=-2)
+        co_matrx_S2 = co_matrx_S2.at[0, l_ - 2].set(1)
+        co_matrx_S2 = co_matrx_S2.at[1, l_ - 1].set(1)
+        co_matrx_S2 = co_matrx_S2 * 0.25
+        csr_S2 = csr_matrix(co_matrx_S2)
+        co_matrx_S2 = sparse.BCSR(
+            (jnp.array(csr_S2.data),
+              jnp.array(csr_S2.indices),
+                jnp.array(csr_S2.indptr)),
+                  shape=(l_, l_))
+
         # S3
-        co_matrx_S3 = cp.diag(cp.full(l_, 1)) + cp.diag(-2 * cp.ones(l_ - 1), k=1) + cp.diag(cp.ones(l_ - 2), k=-2)
-        co_matrx_S1[l_ - 1, 0] = -2
-        co_matrx_S2[l_ - 2, 0] = 1
-        co_matrx_S2[l_ - 1, 1] = 1
+        co_matrx_S3 = jnp.diag(jnp.full(l_, 1)) + jnp.diag(-2 * jnp.ones(l_ - 1), k=1) + jnp.diag(jnp.ones(l_ - 2), k=-2)
+        co_matrx_S3 = co_matrx_S3.at[l_ - 1, 0].set(-2)
+        co_matrx_S3 = co_matrx_S3.at[l_ - 2, 0].set(1)
+        co_matrx_S3 = co_matrx_S3.at[l_ - 1, 1].set(1)
+        csr_S3 = csr_matrix(co_matrx_S3)
+        co_matrx_S3 = sparse.BCSR(
+            (jnp.array(csr_S3.data),
+              jnp.array(csr_S3.indices),
+                jnp.array(csr_S3.indptr)),
+                  shape=(l_, l_))
+
         # S4
-        co_matrx_S4 = cp.diag(cp.ones(l_ - 1), k=-1) + cp.diag(-2 * cp.ones(l_ - 1), k=1) + cp.diag(cp.ones(l_ - 3),
-                                                                                                    k=3)
-        co_matrx_S4[0, l_ - 1] = 1
-        co_matrx_S4[l_ - 1, 0] = -2
-        co_matrx_S4[l_ - 3, 0] = 1
-        co_matrx_S4[l_ - 2, 1] = 1
-        co_matrx_S4[l_ - 1, 2] = 3
+        co_matrx_S4 = jnp.diag(jnp.ones(l_ - 1), k=-1) + jnp.diag(-2 * jnp.ones(l_ - 1), k=1) + jnp.diag(jnp.ones(l_ - 3), k=3)
+        co_matrx_S4 = co_matrx_S4.at[0, l_ - 1].set(1)
+        co_matrx_S4 = co_matrx_S4.at[l_ - 1, 0].set(-2)
+        co_matrx_S4 = co_matrx_S4.at[l_ - 3, 0].set(1)
+        co_matrx_S4 = co_matrx_S4.at[l_ - 2, 1].set(1)
+        co_matrx_S4 = co_matrx_S4.at[l_ - 1, 2].set(3)
         co_matrx_S4 = co_matrx_S4 * 0.25
+        csr_S4 = csr_matrix(co_matrx_S4)
+        co_matrx_S4 = sparse.BCSR(
+            (jnp.array(csr_S4.data),
+              jnp.array(csr_S4.indices),
+                jnp.array(csr_S4.indptr)),
+                  shape=(l_, l_))
+
         # C1
-        co_matrx_C1 = cp.diag(cp.full(l_, -1)) + cp.diag(cp.ones(l_ - 1), k=1)
-        co_matrx_C1[l_ - 1, 0] = 1
+        co_matrx_C1 = jnp.diag(jnp.full(l_, -1)) + jnp.diag(jnp.ones(l_ - 1), k=1)
+        co_matrx_C1 = co_matrx_C1.at[l_ - 1, 0].set(1)
+        csr_C1 = csr_matrix(co_matrx_C1)
+        co_matrx_C1 = sparse.BCSR(
+            (jnp.array(csr_C1.data),
+              jnp.array(csr_C1.indices),
+                jnp.array(csr_C1.indptr)),
+                  shape=(l_, l_))
+
         # C2
-        co_matrx_C2 = cp.diag(cp.ones(l_ - 2), k=2) + cp.diag(-1 * cp.ones(l_ - 1), k=-1)
-        co_matrx_C2[l_ - 1, 1] = 1
-        co_matrx_C2[l_ - 2, 0] = 1
-        co_matrx_C2[0, l_ - 1] = -1
+        co_matrx_C2 = jnp.diag(jnp.ones(l_ - 2), k=2) + jnp.diag(-1 * jnp.ones(l_ - 1), k=-1)
+        co_matrx_C2 = co_matrx_C2.at[l_ - 1, 1].set(1)
+        co_matrx_C2 = co_matrx_C2.at[l_ - 2, 0].set(1)
+        co_matrx_C2 = co_matrx_C2.at[0, l_ - 1].set(-1)
         co_matrx_C2 = co_matrx_C2 / 3
+        csr_C2 = csr_matrix(co_matrx_C2)
+        co_matrx_C2 = sparse.BCSR(
+            (jnp.array(csr_C2.data),
+              jnp.array(csr_C2.indices),
+                jnp.array(csr_C2.indptr)),
+                  shape=(l_, l_))
 
         # Flux generator
+        @jit_jax
         def F_gene(matrx_f_gene):
             # The basic flux (0 to l-1)
             F_matrx = self._get_1d_flux_basic(matrx_f_gene)
             # by cupy
-            F_cp = cp.asarray(F_matrx)
+            F_jnp = jnp.asarray(F_matrx)
             # 0 to l-1
-            S1 = cp.einsum('ij, j->i', co_matrx_S1, F_cp[:-1])
-            S2 = cp.einsum('ij, j->i', co_matrx_S2, F_cp[:-1])
-            S3 = cp.einsum('ij, j->i', co_matrx_S3, F_cp[:-1])
-            S4 = cp.einsum('ij, j->i', co_matrx_S4, F_cp[:-1])
-            C1 = cp.einsum('ij, j->i', co_matrx_C1, F_cp[:-1])
-            C2 = cp.einsum('ij, j->i', co_matrx_C2, F_cp[:-1])
-            S1_ele = cp.expand_dims(S1[0], axis=0)
-            S2_ele = cp.expand_dims(S2[0], axis=0)
-            S3_ele = cp.expand_dims(S3[0], axis=0)
-            S4_ele = cp.expand_dims(S4[0], axis=0)
-            C1_ele = cp.expand_dims(C1[0], axis=0)
-            C2_ele = cp.expand_dims(C2[0], axis=0)
-            S1 = cp.concatenate((S1, S1_ele), axis=0)
-            S2 = cp.concatenate((S2, S2_ele), axis=0)
-            S3 = cp.concatenate((S3, S3_ele), axis=0)
-            S4 = cp.concatenate((S4, S4_ele), axis=0)
-            C1 = cp.concatenate((C1, C1_ele), axis=0)
-            C2 = cp.concatenate((C2, C2_ele), axis=0)
+            S1 = sparse.csr_matvec(co_matrx_S1, F_jnp[:-1])
+            S2 = sparse.csr_matvec(co_matrx_S2, F_jnp[:-1])
+            S3 = sparse.csr_matvec(co_matrx_S3, F_jnp[:-1])
+            S4 = sparse.csr_matvec(co_matrx_S4, F_jnp[:-1])
+            C1 = sparse.csr_matvec(co_matrx_C1, F_jnp[:-1])
+            C2 = sparse.csr_matvec(co_matrx_C2, F_jnp[:-1])
+            S1_ele = jnp.expand_dims(S1[0], axis=0)
+            S2_ele = jnp.expand_dims(S2[0], axis=0)
+            S3_ele = jnp.expand_dims(S3[0], axis=0)
+            S4_ele = jnp.expand_dims(S4[0], axis=0)
+            C1_ele = jnp.expand_dims(C1[0], axis=0)
+            C2_ele = jnp.expand_dims(C2[0], axis=0)
+            S1 = jnp.concatenate((S1, S1_ele), axis=0)
+            S2 = jnp.concatenate((S2, S2_ele), axis=0)
+            S3 = jnp.concatenate((S3, S3_ele), axis=0)
+            S4 = jnp.concatenate((S4, S4_ele), axis=0)
+            C1 = jnp.concatenate((C1, C1_ele), axis=0)
+            C2 = jnp.concatenate((C2, C2_ele), axis=0)
             # k_esw (0 to l-1)
             e = 1e-8
-            expr = (cp.abs(cp.abs(S1 + S2) - cp.abs(S1 - S2))
-                    + cp.abs(cp.abs(S3 + S4) - cp.abs(S3 - S4))
-                    + cp.abs(cp.abs(C1 + C2) - 0.5 * cp.abs(C1 - C2))
-                    + 2 * e) / (cp.abs(S1 + S2)
-                                + cp.abs(S1 - S2)
-                                + cp.abs(S3 + S4)
-                                + cp.abs(S3 - S4)
-                                + cp.abs(C1 + C2)
-                                + cp.abs(C1 - C2) + e)
-            k_esw = cp.arccos(2 * (cp.minimum(expr, 1)) - 1)
+            expr = (jnp.abs(jnp.abs(S1 + S2) - jnp.abs(S1 - S2))
+                    + jnp.abs(jnp.abs(S3 + S4) - jnp.abs(S3 - S4))
+                    + jnp.abs(jnp.abs(C1 + C2) - 0.5 * jnp.abs(C1 - C2))
+                    + 2 * e) / (jnp.abs(S1 + S2)
+                                + jnp.abs(S1 - S2)
+                                + jnp.abs(S3 + S4)
+                                + jnp.abs(S3 - S4)
+                                + jnp.abs(C1 + C2)
+                                + jnp.abs(C1 - C2) + e)
+            k_esw = jnp.arccos(2 * (jnp.minimum(expr, 1)) - 1)
             # g_disp (-1 to l-1)
             mask_p0 = (0 <= k_esw) & (k_esw < 0.01)
             mask_p1 = (0.01 <= k_esw) & (k_esw < 2.5)
-            g_disp_ = 0.1985842 * cp.ones(len(self.x))
+            g_disp_ = 0.1985842 * jnp.ones(len(self.x))
             expr_disp = (k_esw
-                         + cp.sin(2 * k_esw) / 6
-                         - 4 * cp.sin(k_esw) / 3) / (cp.sin(3 * k_esw) - 4 * cp.sin(2 * k_esw) + 5 * cp.sin(k_esw))
-            g_disp_[mask_p0] = 1 / 30
-            g_disp_[mask_p1] = expr_disp[mask_p1]
-            g_disp = cp.zeros(l + 1)
-            g_disp[1:] = g_disp_
-            g_disp[0] = g_disp_[-1]
+                         + jnp.sin(2 * k_esw) / 6
+                         - 4 * jnp.sin(k_esw) / 3) / (jnp.sin(3 * k_esw) - 4 * jnp.sin(2 * k_esw) + 5 * jnp.sin(k_esw))
+            g_disp_ = jnp.where(mask_p0, 1 / 30, g_disp_)
+            g_disp_ = jnp.where(mask_p1, expr_disp, g_disp_)
+            g_disp = jnp.zeros(l + 1)
+            g_disp = g_disp.at[1:].set(g_disp_)
+            g_disp = g_disp.at[0].set(g_disp_[-1])
+
             # g_diss (-1 to l-1)
+            g_diss_ = 0.001 * jnp.ones(len(self.x))
             mask_s0 = (0 <= k_esw) & (k_esw <= 1)
-            g_diss_ = 0.001 * cp.ones(len(self.x))
-            expr_diss = cp.minimum(0.012,
-                                   0.001 + 0.011 * cp.sqrt((k_esw[~mask_s0] - 1) / (cp.pi - 1)))
-            g_diss_[~mask_s0] = expr_diss
-            g_diss = cp.zeros(l + 1)
-            g_diss[1:] = g_diss_
-            g_diss[0] = g_diss_[-1]
+            safe_k = jnp.where(k_esw > 1, (k_esw - 1) / (jnp.pi - 1), 0)
+            expr_diss = jnp.minimum(0.012, 0.001 + 0.011 * jnp.sqrt(safe_k))
+            g_diss_ = jnp.where(~mask_s0, expr_diss, g_diss_)
+            g_diss = jnp.zeros(l + 1)
+            g_diss = g_diss.at[1:].set(g_diss_)
+            g_diss = g_diss.at[0].set(g_diss_[-1])
 
             # expanded basic flux (-3 to l+2)
-            F_expand = cp.zeros(len(self.x) + 6)
-            F_expand[3:-3] = F_cp
-            F_expand[:3] = F_cp[-4:-1]
-            F_expand[-4:] = F_cp[:4]
+            F_expand = jnp.zeros(len(self.x) + 6)
+            F_expand = F_expand.at[3:-3].set(F_jnp)
+            F_expand = F_expand.at[:3].set(F_jnp[-4:-1])
+            F_expand = F_expand.at[-4:].set(F_jnp[:4])
             # half_node flux (-1 to l-1)
             F_half = (0.5 * (g_diss + g_disp) * F_expand[:-5]
                       + (-1.5 * g_disp - 2.5 * g_diss - 1 / 12) * F_expand[1: -4]
@@ -1282,13 +1332,13 @@ class DiffSchemes:
             # release Video memory
             '''del S1, S2, S3, S4, C1, C2, S1_ele, S2_ele, S3_ele, S4_ele, C1_ele, C2_ele
             del g_diss, g_disp, g_disp_, k_esw, mask_p1, mask_p0, mask_s0, expr_disp, expr_diss, F_expand
-            cp.get_default_memory_pool().free_all_blocks()'''
+            jnp.get_default_memory_pool().free_all_blocks()'''
             return F_half  # -1 to l-1
 
         # compute and plot
-        result = self._1d_1vec_conserv_rk4_cp(matrx_cp, F_gene, scheme, t_plot, ylim=ylim, m=m)
+        result = self._1d_1vec_conserv_rk4_jnp(matrx_jnp, F_gene, scheme, t_plot, ylim=ylim, m=m)
         '''del co_matrx_S1, co_matrx_S2, co_matrx_S3, co_matrx_S4, co_matrx_C1, co_matrx_C2
-        cp.get_default_memory_pool().free_all_blocks()'''
+        jnp.get_default_memory_pool().free_all_blocks()'''
         return result
 
     def upwind1(self, t_plot, ylim = None, m = None):

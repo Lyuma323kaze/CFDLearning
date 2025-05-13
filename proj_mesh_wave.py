@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 import os
-
+import time
 
 
 # name and folder of the case
@@ -67,7 +67,7 @@ def get_results(mx_ls):
         item = DiffSchemes(name, dt_, dx_, x_range_, t_range_, c=c, ini_condi=ini_condit, folder=folder)
         result_drp = item.drp(t_plot, y_lim)
         result_drp_m = item.drp_m(t_plot, y_lim, Re_a=40)
-        result_sadrp = item.sadrp(t_plot, y_lim)
+        result_sadrp = item.sadrp_jnp(t_plot, y_lim)
         result_mdcd = item.mdcd(t_plot, y_lim)
         result_subls = [result_drp, result_drp_m, result_sadrp, result_mdcd]
         results.append(result_subls)

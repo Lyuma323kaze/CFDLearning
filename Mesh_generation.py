@@ -109,6 +109,7 @@ class OGridLaplaceGenerator:
                 self.x[i, j], self.y[i, j] = term1 + term2 - term3
 
     # TODO: jit to be added
+    @jit
     def solve_laplace_equations(self, max_iterations=10000, tolerance=1e-6):
         valid_ls = [self.x_xi, self.x_eta, self.y_xi, self.y_eta]
         if any(item is None for item in valid_ls):
@@ -119,22 +120,22 @@ class OGridLaplaceGenerator:
         for iteration in range(max_iterations):
             # derivatives in inner region
             x_xi = self.x_xi[:, 1:-1]
-            x_eta = self.x_eta[:,1:-1]
+            x_eta = self.x_eta[:, 1:-1]
             y_xi = self.y_xi[:, 1:-1]
             y_eta = self.y_eta[:, 1:-1]
             # values of last iteration
             x_old_iter = self.x.copy()
             y_old_iter = self.y.copy()
-            x_new = np.zeros_like(self.x)
-            x_new[:, 0] = x_old_iter[:, 0]  # inner boundary
-            x_new[:, -1] = x_old_iter[:, -1]  # outer boundary
-            y_new = np.zeros_like(self.y)
-            y_new[:, 0] = y_old_iter[:, 0]  # inner boundary
-            y_new[:, -1] = y_old_iter[:, -1]  # outer boundary
+            x_new = jnp.zeros_like(self.x)
+            x_new = x_new.at[:, 0].set(x_old_iter[:, 0])  # inner boundary
+            x_new = x_new.at[:, -1].set(x_old_iter[:, -1])  # outer boundary
+            y_new = jnp.zeros_like(self.y)
+            y_new = y_new.at[:, 0].set(y_old_iter[:, 0])  # inner boundary
+            y_new = y_new.at[:, -1].set(y_old_iter[:, -1])  # outer boundary
             max_diff_iter = 0.0
             # the transitioned indices
-            xi_p1 = np.roll(idx_xi, -1, axis=0)[:, 1:-1]
-            xi_m1 = np.roll(idx_xi, 1, axis=0)[:, 1:-1]
+            xi_p1 = jnp.roll(idx_xi, -1, axis=0)[:, 1:-1]
+            xi_m1 = jnp.roll(idx_xi, 1, axis=0)[:, 1:-1]
             xi_0 = idx_xi[:, 1:-1]
             eta_p1 = idx_eta[:, 2:]
             eta_m1 = idx_eta[:, :-2]
@@ -144,35 +145,40 @@ class OGridLaplaceGenerator:
             beta = x_xi * x_eta + y_xi * y_eta
             b_sn = x_xi ** 2 + y_xi ** 2
             b_p = 2 * b_we + 2 * b_sn
-            b_p = np.where(b_p == 0, 1e-8, b_p)  # Avoid division by zero
+            b_p = jnp.where(b_p == 0, 1e-8, b_p)  # Avoid division by zero
             # here I would like to generate a reduced matrix, shape = (NI, NJ-2), and the 2 indices are
             # given by the xi and eta indices.
             c_px = - beta * (x_old_iter[xi_p1, eta_p1] - x_old_iter[xi_m1, eta_p1] +
-                             x_old_iter[xi_m1, eta_m1] - x_old_iter[xi_p1, eta_m1]) / 2
+                            x_old_iter[xi_m1, eta_m1] - x_old_iter[xi_p1, eta_m1]) / 2
             c_py = - beta * (y_old_iter[xi_p1, eta_p1] - y_old_iter[xi_m1, eta_p1] +
-                             y_old_iter[xi_m1, eta_m1] - y_old_iter[xi_p1, eta_m1]) / 2
-            # TODO: in-place assignment to be fixed when using jax
-            x_new[xi_0, eta_0] = (b_we * x_old_iter[xi_m1, eta_0] + b_we * x_old_iter[xi_p1, eta_0] +
-                     b_sn * x_old_iter[xi_0, eta_m1] + b_sn * x_old_iter[xi_0, eta_p1] +
-                     c_px) / b_p
-            y_new[xi_0, eta_0] = (b_we * y_old_iter[xi_m1, eta_0] + b_we * y_old_iter[xi_p1, eta_0] +
-                     b_sn * y_old_iter[xi_0, eta_m1] + b_sn * y_old_iter[xi_0, eta_p1] +
-                     c_py) / b_p
-            current_max_diff = np.maximum(np.abs(x_new - x_old_iter), np.abs(y_new - y_old_iter))
-            current_max_diff = np.max(current_max_diff)
+                            y_old_iter[xi_m1, eta_m1] - y_old_iter[xi_p1, eta_m1]) / 2
+            # Update internal points using at[].set()
+            x_new = x_new.at[xi_0, eta_0].set(
+                (b_we * x_old_iter[xi_m1, eta_0] + b_we * x_old_iter[xi_p1, eta_0] +
+                b_sn * x_old_iter[xi_0, eta_m1] + b_sn * x_old_iter[xi_0, eta_p1] +
+                c_px) / b_p
+            )
+            y_new = y_new.at[xi_0, eta_0].set(
+                (b_we * y_old_iter[xi_m1, eta_0] + b_we * y_old_iter[xi_p1, eta_0] +
+                b_sn * y_old_iter[xi_0, eta_m1] + b_sn * y_old_iter[xi_0, eta_p1] +
+                c_py) / b_p
+            )
+            current_max_diff = jnp.maximum(jnp.abs(x_new - x_old_iter), jnp.abs(y_new - y_old_iter))
+            current_max_diff = jnp.max(current_max_diff)
             self.x = x_new
             self.y = y_new
             self.compute_derivatives_phy_to_com_and_jacobian()
             if current_max_diff > max_diff_iter:
                 max_diff_iter = current_max_diff
             
-            if iteration % 200 == 0 or iteration == max_iterations -1 :  # Periodic progress reporting
+            if iteration % 200 == 0 or iteration == max_iterations - 1:  # Periodic progress reporting
                 print(f"Iteration {iteration + 1}/{max_iterations}, Max difference: {max_diff_iter:.2e}")
 
             if max_diff_iter < tolerance:
                 print(f"Converged after {iteration + 1} iterations. Max difference: {max_diff_iter:.2e}")
                 break
-  
+    
+    @jit
     def compute_derivatives_phy_to_com_and_jacobian(self):
         """
         Compute partial derivatives of x,y w.r.t xi,eta and Jacobian J.
@@ -186,11 +192,11 @@ class OGridLaplaceGenerator:
              print("Warning: Physical coordinates may not be properly computed (possibly still initial zeros). Derivatives may be meaningless.")
 
 
-        self.x_xi = np.zeros((self.NI, self.NJ), dtype=float)
-        self.x_eta = np.zeros((self.NI, self.NJ), dtype=float)
-        self.y_xi = np.zeros((self.NI, self.NJ), dtype=float)
-        self.y_eta = np.zeros((self.NI, self.NJ), dtype=float)
-        self.J_jacobian = np.zeros((self.NI, self.NJ), dtype=float)
+        self.x_xi = jnp.zeros((self.NI, self.NJ), dtype=float)
+        self.x_eta = jnp.zeros((self.NI, self.NJ), dtype=float)
+        self.y_xi = jnp.zeros((self.NI, self.NJ), dtype=float)
+        self.y_eta = jnp.zeros((self.NI, self.NJ), dtype=float)
+        self.J_jacobian = jnp.zeros((self.NI, self.NJ), dtype=float)
 
         # Step sizes in computational coordinates
         # xi_comp values are k/NI, k = 0, ..., NI-1. So step size is 1/NI
@@ -207,39 +213,40 @@ class OGridLaplaceGenerator:
                 ip1 = (i + 1) % self.NI
                 im1 = (i - 1 + self.NI) % self.NI
                 
-                self.x_xi[i, j] = (self.x[ip1, j] - self.x[im1, j]) / (2.0 * d_xi)
-                self.y_xi[i, j] = (self.y[ip1, j] - self.y[im1, j]) / (2.0 * d_xi)
+                self.x_xi.at[i, j].set((self.x[ip1, j] - self.x[im1, j]) / (2.0 * d_xi))
+                self.y_xi.at[i, j].set((self.y[ip1, j] - self.y[im1, j]) / (2.0 * d_xi))
 
                 # --- Eta derivatives (radial) ---
                 # self.NJ guaranteed >= 2
                 if self.NJ == 2:  # Only two lines (j=0, j=1)
                     # Use first-order one-sided differences. d_eta_norm = 1.0/(2-1) = 1.0
                     if j == 0:  # Inner boundary (j=0)
-                        self.x_eta[i, j] = (self.x[i, j + 1] - self.x[i, j]) / d_eta
-                        self.y_eta[i, j] = (self.y[i, j + 1] - self.y[i, j]) / d_eta
+                        self.x_eta.at[i, j].set((self.x[i, j + 1] - self.x[i, j]) / d_eta)
+                        self.y_eta.at[i, j].set((self.y[i, j + 1] - self.y[i, j]) / d_eta)
                     else:  # Outer boundary (j=1)
-                        self.x_eta[i, j] = (self.x[i, j] - self.x[i, j - 1]) / d_eta
-                        self.y_eta[i, j] = (self.y[i, j] - self.y[i, j - 1]) / d_eta
+                        self.x_eta.at[i, j].set((self.x[i, j] - self.x[i, j - 1]) / d_eta)
+                        self.y_eta.at[i, j].set((self.y[i, j] - self.y[i, j - 1]) / d_eta)
                 else:  # self.NJ >= 3, can use second-order one-sided on boundaries
                     if j == 0:  # Inner boundary (j=0, eta=0) - second-order forward
                         # f'(x0) = (-3f0 + 4f1 - f2)/(2h)
-                        self.x_eta[i, j] = (-3.0 * self.x[i, 0] + 4.0 * self.x[i, 1] - self.x[i, 2]) / (2.0 * d_eta)
-                        self.y_eta[i, j] = (-3.0 * self.y[i, 0] + 4.0 * self.y[i, 1] - self.y[i, 2]) / (2.0 * d_eta)
+                        self.x_eta.at[i, j].set((-3.0 * self.x[i, 0] + 4.0 * self.x[i, 1] - self.x[i, 2]) / (2.0 * d_eta))
+                        self.y_eta.at[i, j].set((-3.0 * self.y[i, 0] + 4.0 * self.y[i, 1] - self.y[i, 2]) / (2.0 * d_eta))
                     elif j == self.NJ - 1:  # Outer boundary (j=NJ-1, eta=1) - second-order backward
                         # f'(x_N) = (3f_N -4f_{N-1} +f_{N-2})/(2h)
-                        self.x_eta[i, j] = (3.0 * self.x[i, self.NJ - 1] - 4.0 * self.x[i, self.NJ - 2] + self.x[i, self.NJ - 3]) / (2.0 * d_eta)
-                        self.y_eta[i, j] = (3.0 * self.y[i, self.NJ - 1] - 4.0 * self.y[i, self.NJ - 2] + self.y[i, self.NJ - 3]) / (2.0 * d_eta)
+                        self.x_eta.at[i, j].set((3.0 * self.x[i, self.NJ - 1] - 4.0 * self.x[i, self.NJ - 2] + self.x[i, self.NJ - 3]) / (2.0 * d_eta))
+                        self.y_eta.at[i, j].set((3.0 * self.y[i, self.NJ - 1] - 4.0 * self.y[i, self.NJ - 2] + self.y[i, self.NJ - 3]) / (2.0 * d_eta))
                     else:  # Interior points (0 < j < NJ-1) - central differences
-                        self.x_eta[i, j] = (self.x[i, j + 1] - self.x[i, j - 1]) / (2.0 * d_eta)
-                        self.y_eta[i, j] = (self.y[i, j + 1] - self.y[i, j - 1]) / (2.0 * d_eta)
+                        self.x_eta.at[i, j].set((self.x[i, j + 1] - self.x[i, j - 1]) / (2.0 * d_eta))
+                        self.y_eta.at[i, j].set((self.y[i, j + 1] - self.y[i, j - 1]) / (2.0 * d_eta))
                 
                 # --- Compute Jacobian determinant J ---
                 # J = x_xi * y_eta - x_eta * y_xi
-                self.J_jacobian[i, j] = self.x_xi[i, j] * self.y_eta[i, j] - self.x_eta[i, j] * self.y_xi[i, j]
-        self.J_jacobian = np.where(self.J_jacobian == 0, 1e-8, self.J_jacobian)  # Avoid division by zero
+                self.J_jacobian.at[i, j].set(self.x_xi[i, j] * self.y_eta[i, j] - self.x_eta[i, j] * self.y_xi[i, j]) 
+        self.J_jacobian = jnp.where(self.J_jacobian == 0, 1e-8, self.J_jacobian)  # Avoid division by zero
         
         # print("Derivatives (x_xi, x_eta, y_xi, y_eta) and Jacobian computed and stored")
-
+    
+    @jit
     def compute_derivatives_com_to_phy(self):
         self.xi_x = self.y_eta / self.J_jacobian
         self.xi_y = -self.x_eta / self.J_jacobian
@@ -283,22 +290,23 @@ class OGridLaplaceGenerator:
         if 'matplotlib' not in globals() and 'plt' not in globals(): 
             print("Matplotlib not imported. Cannot plot grid")
             return
-
+        x_phys = self.x.numpy()
+        y_phys = self.y.numpy()
         plt.figure(figsize=(10, 8))
         
         # Plot constant-eta lines (look like "rings" or "shells" in O-grid)
         # self.x[:, j] is line of constant j (eta)
         for j in range(self.NJ):  # For each eta=constant line
             # Connect last point to first to close O-grid loop
-            line_x = np.append(self.x[:, j], self.x[0, j])
-            line_y = np.append(self.y[:, j], self.y[0, j])
+            line_x = np.append(x_phys[:, j], x_phys[0, j])
+            line_y = np.append(y_phys[:, j], y_phys[0, j])
             plt.plot(line_x, line_y, 'b-', linewidth=0.8, label='Eta lines' if j == 0 else "")
 
 
         # Plot constant-xi lines (look like "radial lines" or "spokes")
         # self.x[i, :] is line of constant i (xi)
         for i in range(self.NI):  # For each xi=constant line
-            plt.plot(self.x[i, :], self.y[i, :], 'r-', linewidth=0.8, label='Xi lines' if i == 0 else "")
+            plt.plot(x_phys[i, :], y_phys[i, :], 'r-', linewidth=0.8, label='Xi lines' if i == 0 else "")
         
         plt.xlabel("x (Physical)")
         plt.ylabel("y (Physical)")
@@ -321,15 +329,17 @@ class OGridLaplaceGenerator:
         if self.NJ <=1 :
             fig_height = fig_width * 0.2  # Very thin if NJ=1
 
+        xi_comp = self.xi_comp.numpy()
+        eta_comp = self.eta_comp.numpy()
         plt.figure(figsize=(fig_width, fig_height if fig_height > 1 else 2))  # Ensure reasonable height
         
         # Plot constant-eta lines (horizontal)
         for j in range(self.NJ):
-            plt.plot(self.xi_comp[:, j], self.eta_comp[:, j], 'b-', linewidth=0.8)
+            plt.plot(xi_comp[:, j], eta_comp[:, j], 'b-', linewidth=0.8)
 
         # Plot constant-xi lines (vertical)
         for i in range(self.NI):
-            plt.plot(self.xi_comp[i, :], self.eta_comp[i, :], 'r-', linewidth=0.8)
+            plt.plot(xi_comp[i, :], eta_comp[i, :], 'r-', linewidth=0.8)
         
         plt.xlabel("ξ (Computational)")
         plt.ylabel("η (Computational)")
@@ -341,11 +351,12 @@ class OGridLaplaceGenerator:
         plt.gca().set_aspect('auto', adjustable='box')  # Or 'equal' for equal aspect ratio
         plt.show()
 
-# 示例用法:
+
 if __name__ == '__main__':
-    # 定义边界函数
-    # 示例: 用于环形区域的内圆和外圆
-    # t 是一个从 0 到 1 的参数
+    # define inner and outer boundary functions
+    # inner boundary: circle with radius 1.0
+    # outer boundary: circle with radius 3.0
+    # t ranges from 0 to 1
     def inner_circle_boundary(t, radius=1.0, center_x=0.0, center_y=0.0):
         angle = 2 * np.pi * t
         x = center_x + radius * np.cos(angle)
@@ -358,55 +369,37 @@ if __name__ == '__main__':
         y = center_y + radius * np.sin(angle)
         return x, y
 
-    # 定义一个更复杂的内边界示例：椭圆
+    # ellipse boundary
     def inner_ellipse_boundary(t, a=2.0, b=0.8, center_x=0.0, center_y=0.0): # a: 半长轴, b: 半短轴
         angle = 2 * np.pi * t
         x = center_x + a * np.cos(angle)
         y = center_y + b * np.sin(angle)
         return x, y
 
-    # 网格参数
-    NI_points = 80  # 周向点数
-    NJ_points = 40  # 径向点数
+    # mesh generation parameters
+    NI_points = 80  # angular points number
+    NJ_points = 40  # axial points number
 
-    print(f"正在生成 O 型网格，NI={NI_points}, NJ={NJ_points}...")
+    print(f"generating O type mesh, NI={NI_points}, NJ={NJ_points}...")
 
-    # === 使用同心圆 ===
-    # generator = OGridLaplaceGenerator(NI_points, NJ_points,
-    #                                   inner_boundary_func=lambda t: inner_circle_boundary(t, radius=1.0),
-    #                                   outer_boundary_func=lambda t: outer_circle_boundary(t, radius=3.0))
-
-    # === 使用椭圆作为内边界，圆作为外边界 ===
+    # === ellipse as inner boundary, circle as outer ===
     generator = OGridLaplaceGenerator(NI_points, NJ_points,
                                       inner_boundary_func=lambda t: inner_ellipse_boundary(t, a=2.0, b=1),
                                       outer_boundary_func=lambda t: outer_circle_boundary(t, radius=40.0))
 
 
-    print("\n边界和内部点初始猜测已设定。")
-    print(f"内边界 x[0,0]: ({generator.x[0,0]:.3f}, {generator.y[0,0]:.3f})")
-    print(f"外边界 x[0,NJ-1]: ({generator.x[0,NJ_points-1]:.3f}, {generator.y[0,NJ_points-1]:.3f})")
+    print("\ninitializing grid...")
     
-    # 求解拉普拉斯方程以生成网格
-    # omega 通常在 (1.0, 2.0) 之间以获得SOR的良好性能。
-    # 对于JOR（当前实现），omega=1.0 对应于雅可比方法。
-    # 较大的 omega 值 (如 1.8, 1.9) 通常可以加速收敛，但最佳值取决于具体问题。
-    print("\n开始求解拉普拉斯方程...")
+    # mesh generation by solving Laplace equations
+    # Jacobian iteration
+    print("\nbeginning to solve Laplace equations...")
     generator.solve_laplace_equations(max_iterations=30000, tolerance=1e-8)
 
-    # 获取坐标
-    x_physical, y_physical, xi_computational, eta_computational = generator.get_coordinates()
-
-    print("\n网格点坐标示例:")
-    print(f"x[0,0] (物理): {x_physical[0,0]:.3f}, y[0,0] (物理): {y_physical[0,0]:.3f}")
-    print(f"xi[0,0] (计算): {xi_computational[0,0]:.3f}, eta[0,0] (计算): {eta_computational[0,0]:.3f}")
+    # Output mesh data to file
+    generator.output_to_file("mesh_data.txt")
+    print("solve_laplace_equations() completed.")
     
-    print(f"x[NI/2, NJ/2] (物理): {x_physical[NI_points//2, NJ_points//2]:.3f}, y[NI/2, NJ/2] (物理): {y_physical[NI_points//2, NJ_points//2]:.3f}")
-    print(f"xi[NI/2, NJ/2] (计算): {xi_computational[NI_points//2, NJ_points//2]:.3f}, eta[NI/2, NJ/2] (计算): {eta_computational[NI_points//2, NJ_points//2]:.3f}")
-
-    # 绘制网格 
-
-    print("\n正在绘制物理网格...")
+    # plotting the grid
+    print("\n plotting the mesh...")
     generator.plot_physical_grid(show_points=False)
-    print("正在绘制计算网格...")
-    # generator.plot_computational_grid()
-    print("绘图完成。请查看弹出的窗口。")
+    print("Plotting completed.")

@@ -1,0 +1,6 @@
+cupy==13.4.1
+jax==0.6.0
+matplotlib==3.10.3
+numba==0.61.2
+numpy==2.2.5
+scipy==1.15.3

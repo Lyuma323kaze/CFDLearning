@@ -376,30 +376,6 @@ class OGridLaplaceGenerator:
         """Plot inner and outer boundaries"""
 
         plt.figure(figsize=(10, 8))
-        # Plot inner boundary
-        t_params = np.linspace(0, 1, self.NI, endpoint=False)
-        x_inner, y_inner = zip(*[self.inner_boundary_func(t) for t in t_params])
-        plt.plot(x_inner, y_inner, 'b-', linewidth=2, label='Inner Boundary')
-
-        # Plot outer boundary
-        x_outer, y_outer = zip(*[self.outer_boundary_func(t) for t in t_params])
-        plt.plot(x_outer, y_outer, 'r-', linewidth=2, label='Outer Boundary')
-
-        if show_points:
-            plt.scatter(x_inner, y_inner, color='blue', s=10)
-            plt.scatter(x_outer, y_outer, color='red', s=10)
-
-        plt.xlabel("x (Physical)")
-        plt.ylabel("y (Physical)")
-        plt.title("Boundary Points")
-        plt.axis('equal')
-        plt.grid(True)
-        plt.legend()
-        plt.show()
-    
-    def plot_init_guess(self, show_points=False):
-        """Plot initial guess for grid points"""
-        plt.figure(figsize=(10, 8))
         
         # Plot constant-eta lines (look like "rings" or "shells" in O-grid)
         # self.x[:, j] is line of constant j (eta)

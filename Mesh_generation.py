@@ -1,9 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from jax import jit
-import jax.numpy as jnp
-import os
-from jax.experimental import sparse
 
 class OGridLaplaceGenerator:
     """
@@ -344,7 +340,6 @@ class OGridLaplaceGenerator:
 # 示例用法:
 if __name__ == '__main__':
     # 定义边界函数
-    # 示例: 用于环形区域的内圆和外圆
     # t 是一个从 0 到 1 的参数
     def inner_circle_boundary(t, radius=1.0, center_x=0.0, center_y=0.0):
         angle = 2 * np.pi * t
@@ -369,12 +364,7 @@ if __name__ == '__main__':
     NI_points = 80  # 周向点数
     NJ_points = 40  # 径向点数
 
-    print(f"正在生成 O 型网格，NI={NI_points}, NJ={NJ_points}...")
-
-    # === 使用同心圆 ===
-    # generator = OGridLaplaceGenerator(NI_points, NJ_points,
-    #                                   inner_boundary_func=lambda t: inner_circle_boundary(t, radius=1.0),
-    #                                   outer_boundary_func=lambda t: outer_circle_boundary(t, radius=3.0))
+    print(f"正在生成 O 型网格, NI={NI_points}, NJ={NJ_points}...")
 
     # === 使用椭圆作为内边界，圆作为外边界 ===
     generator = OGridLaplaceGenerator(NI_points, NJ_points,

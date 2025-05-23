@@ -15,13 +15,17 @@ from jax.experimental import sparse
 
 
 class DiffSchemes:
-    def __init__(self, name, dt, dx, x, t, sigma = None, c = None, a = None, gamma = None, ini_condi = None, bnd_condi = None, folder = None):
+    def __init__(self, name, dt, dx, x, t,
+                 sigma = None, c = None, a = None, gamma = None, ini_condi = None, bnd_condi = None, folder = None,
+                 dy = None, y = None):
         self.dt = dt
         self.dx = dx
+        self.dy = dy
         self.sigma = sigma
         self.c = c
         self.gamma = gamma
         self.x = x
+        self,y = y
         self.t = t
         self.a = self.c * self.dx / self.dt
         self.init_condition = ini_condi
@@ -1472,3 +1476,8 @@ class DiffSchemes:
         # compute and plot
         self._1d_3vec_tvd_rk3(matrx, F_gene, scheme, t_plot)
         return 0
+    
+    def vortex_stream_func(self, t_plot, y_lim = None, Re = None):
+        # TODO: write vortex-stream function for 2D Poisulle flow
+        ...
+        

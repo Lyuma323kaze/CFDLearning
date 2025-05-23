@@ -376,6 +376,30 @@ class OGridLaplaceGenerator:
         self.compute_derivatives_com_to_phy()
         ...
     
+    def plot_boundary(self, show_points=False):
+        """Plot inner and outer boundaries"""
+        if 'matplotlib' not in globals() and 'plt' not in globals(): 
+            print("Matplotlib not imported. Cannot plot grid")
+            return
+
+        plt.figure(figsize=(10, 8))
+        # Plot inner boundary
+        plt.plot(self.x[:, 0], self.y[:, 0], 'b-', linewidth=2, label='Inner Boundary')
+        # Plot outer boundary
+        plt.plot(self.x[:, -1], self.y[:, -1], 'r-', linewidth=2, label='Outer Boundary')
+        
+        if show_points:
+            plt.scatter(self.x[:, 0], self.y[:, 0], color='blue', s=10, label='Inner Boundary Points')
+            plt.scatter(self.x[:, -1], self.y[:, -1], color='red', s=10, label='Outer Boundary Points')
+
+        plt.xlabel("x (Physical)")
+        plt.ylabel("y (Physical)")
+        plt.title("Boundary Points")
+        plt.axis('equal')
+        plt.grid(True, linestyle=':', alpha=0.5)
+        plt.legend()
+        plt.show()
+    
     def plot_physical_grid(self, show_points=False):
         """Plot generated grid in physical (x,y) plane"""
         if 'matplotlib' not in globals() and 'plt' not in globals(): 
@@ -492,21 +516,19 @@ if __name__ == '__main__':
         return x, y
 
     # NACA0012 airfoil boundary
-    def naca0012_airfoil(t, chord_length=1.0):
+    def naca0012_airfoil(t, chord_length=1.0, beta=0.5):
         """closed NACA0012 airfoil profile"""
         max_thickness = 0.12 * chord_length  # max thickness
         # split the t range into two halves
-        t_scaled = 2 * t  # scale t to [0, 2]
-        
         if np.isclose(t, 1.0, atol=1e-12):
             return 1.0, 0.0  # force the trailing edge to be at (1,0)
         
         t_scaled = 2 * t
         if t_scaled <= 1.0:
-            x = 1 - t_scaled  # upper surface
+            x = (1-beta) * (1 - t_scaled) + 0.5 * beta * (1 + np.cos(np.pi * t_scaled))  # upper surface
             y_sign = 1
         else:
-            x = t_scaled - 1  # lower surface
+            x = (1-beta) * (t_scaled - 1) + 0.5 * beta * (1 - np.cos(np.pi * (t_scaled - 1))) # lower surface
             y_sign = -1
         
         # front point as 0.0
@@ -514,26 +536,29 @@ if __name__ == '__main__':
             return 0.0, 0.0
         
         # compute thickness distribution
-        yt = (0.12/0.2) * (0.2969*np.sqrt(x) - 0.1260*x - 0.3516*x**2 + 0.2843*x**3 - 0.1015*x**4)
+        yt = (max_thickness/0.2) * (0.2969*np.sqrt(x) - 0.1260*x - 0.3516*x**2 + 0.2843*x**3 - 0.1015*x**4)
         return x * chord_length, y_sign * yt * chord_length
 
     # mesh generation parameters
     NI_points = 200  # angular points number
     NJ_points = 100  # axial points number
     alpha = 0.8     # relaxation factor
+    beta = 0.8     # distribution factor
     tol = 1e-5      # convergence tolerance
     symmetric = True  # symmetric endpoint for inner boundary
     chord_length = 1.0  # chord length for NACA0012 airfoil
     radius = 20.0  # radius for outer circle boundary
     max_iterations = 200000  # max iterations for Laplace solver
     compute = True  # compute the grid or not
+    tuning = not compute  # tuning the grid or not
     
 
     print(f"generating O type mesh, NI={NI_points}, NJ={NJ_points}...")
 
     # === ellipse as inner boundary, circle as outer ===
     generator = OGridLaplaceGenerator(NI_points, NJ_points,
-                                      inner_boundary_func=lambda t: naca0012_airfoil(t, chord_length=chord_length),
+                                      inner_boundary_func=lambda t: naca0012_airfoil(t, chord_length=chord_length,
+                                                                                     beta=beta),
                                       outer_boundary_func=lambda t: outer_circle_boundary(t, radius=radius,
                                                                                           center_x=0.5 * chord_length,
                                                                                           center_y=0.0),
@@ -542,11 +567,12 @@ if __name__ == '__main__':
 
     print("\ninitializing grid...")
     
-    # print boundary points
-    # generator.plot_boundary(show_points=True)
-    
-    # print initial guess
-    # generator.plot_init_guess(show_points=True)
+    if tuning:
+        # print boundary points
+        generator.plot_boundary(show_points=True)
+        
+        # print initial guess
+        # generator.plot_init_guess(show_points=True)
     
     if compute:
         # mesh generation by solving Laplace equations

@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from numba import jit, prange
+
 
 class OGridLaplaceGenerator:
     """
@@ -12,7 +14,7 @@ class OGridLaplaceGenerator:
     The equations are discretized using finite difference method and solved iteratively.
     """
 
-    def __init__(self, NI, NJ, inner_boundary_func, outer_boundary_func):
+    def __init__(self, NI, NJ, inner_boundary_func, outer_boundary_func, symmetric=False):
         """
         Initialize grid generator.
 
@@ -60,14 +62,19 @@ class OGridLaplaceGenerator:
         self.xi_comp = self.xi / NI
         self.eta_comp = self.eta / (NJ - 1)  # eta values are 0, 1/(NJ-1), ..., 1
         
-        self._initialize_boundaries()
+        self._initialize_boundaries(symmetric)
         self._initialize_interior_guess()
 
-    def _initialize_boundaries(self):
+    def _initialize_boundaries(self, symmetric_endpoint=False, prt = False):
         """Set x,y coordinates for inner boundary (eta=0) and outer boundary (eta=NJ-1)"""
         # t_params are values for boundary function parameter 't'
         # These correspond to our normalized xi coordinates
-        t_params = np.linspace(0, 1, self.NI, endpoint=False)  # NI points: 0, 1/NI, ..., (NI-1)/NI
+        if symmetric_endpoint:
+            t_params_1 = np.linspace(0, 0.5, self.NI//2 + 1, endpoint=True)[:-1]  # 0→0.5（不包含0.5）
+            t_params_2 = np.linspace(0.5, 1, self.NI - len(t_params_1) + 1, endpoint=True)  # 0.5→1（包含1）
+            t_params = np.concatenate((t_params_1, t_params_2))
+        else:
+            t_params = np.linspace(0, 1, self.NI, endpoint=False)  # NI points: 0, 1/NI, ..., (NI-1)/NI
 
         for i in range(self.NI):
             # ti is equivalent to self.xi_comp[i, 0] or self.xi_comp[i, self.NJ-1]
@@ -80,94 +87,197 @@ class OGridLaplaceGenerator:
             self.x[i, self.NJ - 1], self.y[i, self.NJ - 1] = self.outer_boundary_func(ti)
 
     def _initialize_interior_guess(self):
-        """Initialize interior grid points using linear interpolation"""
-        for j in range(1, self.NJ - 1):
-            eta = self.eta_comp[0, j]
-            for i in range(self.NI):
-                xi = self.xi_comp[i, j]
-                # Boundary contributions
-                U_0 = np.array([self.x[i, 0], self.y[i, 0]])
-                U_1 = np.array([self.x[i, -1], self.y[i, -1]])
-                V_0 = np.array([self.x[0, j], self.y[0, j]])
-                V_1 = np.array([self.x[-1, j], self.y[-1, j]])
-
-                C_00 = np.array([self.x[0, 0], self.y[0, 0]])
-                C_10 = np.array([self.x[-1, 0], self.y[-1, 0]])
-                C_01 = np.array([self.x[0, -1], self.y[0, -1]])
-                C_11 = np.array([self.x[-1, -1], self.y[-1, -1]])
-                # TFI formula
-                term1 = (1 - eta) * U_0 + eta * U_1
-                term2 = (1 - xi) * V_0 + xi * V_1
-                term3 = (1 - xi) * (1 - eta) * C_00 + xi * (1 - eta) * C_10 + \
-                        (1 - xi) * eta * C_01 + xi * eta * C_11
-
-                # TFI formula
-                self.x[i, j], self.y[i, j] = term1 + term2 - term3
-
-    # TODO: jit to be added
-    def solve_laplace_equations(self, max_iterations=10000, tolerance=1e-6):
+        self.x = (1 - self.eta_comp) * self.x[:, 0, np.newaxis] + self.eta_comp * self.x[:, -1, np.newaxis]
+        self.y = (1 - self.eta_comp) * self.y[:, 0, np.newaxis] + self.eta_comp * self.y[:, -1, np.newaxis]
+    
+    def solve_laplace_equations(self, max_iterations=10000, tolerance=1e-6, alpha = 0.5):
         valid_ls = [self.x_xi, self.x_eta, self.y_xi, self.y_eta]
         if any(item is None for item in valid_ls):
             self.compute_derivatives_phy_to_com_and_jacobian()
         # 2d arrays for xi, eta indices (shape = (NI, NJ))
         idx_xi, idx_eta = self.xi, self.eta
+        # static parameters for numba
+        NI = self.NI
+        NJ = self.NJ
+        x = self.x
+        y = self.y
+        x_xi = self.x_xi
+        y_xi = self.y_xi
+        x_eta = self.x_eta
+        y_eta = self.y_eta
+        J_jacobian = self.J_jacobian
         # Jacobian iteration
-        for iteration in range(max_iterations):
-            # derivatives in inner region
-            x_xi = self.x_xi[:, 1:-1]
-            x_eta = self.x_eta[:,1:-1]
-            y_xi = self.y_xi[:, 1:-1]
-            y_eta = self.y_eta[:, 1:-1]
-            # values of last iteration
-            x_old_iter = self.x.copy()
-            y_old_iter = self.y.copy()
-            x_new = np.zeros_like(self.x)
-            x_new[:, 0] = x_old_iter[:, 0]  # inner boundary
-            x_new[:, -1] = x_old_iter[:, -1]  # outer boundary
-            y_new = np.zeros_like(self.y)
-            y_new[:, 0] = y_old_iter[:, 0]  # inner boundary
-            y_new[:, -1] = y_old_iter[:, -1]  # outer boundary
-            max_diff_iter = 0.0
+        @jit
+        def comput_drv_phy_to_com_and_jcbn(x, y, J_jacobian, d_xi=1.0, d_eta=1.0):
+            x_xi = np.zeros((NI, NJ), dtype=np.float64)
+            y_xi = np.zeros((NI, NJ), dtype=np.float64)
+            x_eta = np.zeros((NI, NJ), dtype=np.float64)
+            y_eta = np.zeros((NI, NJ), dtype=np.float64)
+            for i in prange(NI):
+                for j in prange(NJ):
+                    # --- Xi derivatives (circumferential) ---
+                    # Use central differences with periodic boundary handling
+                    ip1 = (i + 1) % NI
+                    im1 = (i - 1 + NI) % NI
+                    
+                    x_xi[i, j] = (x[ip1, j] - x[im1, j]) / (2.0 * d_xi)
+                    y_xi[i, j] = (y[ip1, j] - y[im1, j]) / (2.0 * d_xi)
+
+                    # --- Eta derivatives (radial) ---
+                    # NJ guaranteed >= 2
+                    if NJ == 2:  # Only two lines (j=0, j=1)
+                        # Use first-order one-sided differences. d_eta_norm = 1.0/(2-1) = 1.0
+                        if j == 0:  # Inner boundary (j=0)
+                            x_eta[i, j] = (x[i, j + 1] - x[i, j]) / d_eta
+                            y_eta[i, j] = (y[i, j + 1] - y[i, j]) / d_eta
+                        else:  # Outer boundary (j=1)
+                            x_eta[i, j] = (x[i, j] - x[i, j - 1]) / d_eta
+                            y_eta[i, j] = (y[i, j] - y[i, j - 1]) / d_eta
+                    else:  # NJ >= 3, can use second-order one-sided on boundaries
+                        if j == 0:  # Inner boundary (j=0, eta=0) - second-order forward
+                            # f'(x0) = (-3f0 + 4f1 - f2)/(2h)
+                            x_eta[i, j] = (-3.0 * x[i, 0] + 4.0 * x[i, 1] - x[i, 2]) / (2.0 * d_eta)
+                            y_eta[i, j] = (-3.0 * y[i, 0] + 4.0 * y[i, 1] - y[i, 2]) / (2.0 * d_eta)
+                        elif j == NJ - 1:  # Outer boundary (j=NJ-1, eta=1) - second-order backward
+                            # f'(x_N) = (3f_N -4f_{N-1} +f_{N-2})/(2h)
+                            x_eta[i, j] = (3.0 * x[i, NJ - 1] - 4.0 * x[i, NJ - 2] + x[i, NJ - 3]) / (2.0 * d_eta)
+                            y_eta[i, j] = (3.0 * y[i, NJ - 1] - 4.0 * y[i, NJ - 2] + y[i, NJ - 3]) / (2.0 * d_eta)
+                        else:  # Interior points (0 < j < NJ-1) - central differences
+                            x_eta[i, j] = (x[i, j + 1] - x[i, j - 1]) / (2.0 * d_eta)
+                            y_eta[i, j] = (y[i, j + 1] - y[i, j - 1]) / (2.0 * d_eta)
+                    
+                    # --- Compute Jacobian determinant J ---
+                    # J = x_xi * y_eta - x_eta * y_xi
+                    J_jacobian[i, j] = x_xi[i, j] * y_eta[i, j] - x_eta[i, j] * y_xi[i, j]
+            
+            J_jacobian = np.where(J_jacobian == 0, 1e-8, J_jacobian)  # Avoid division by zero
+            return x_xi, y_xi, x_eta, y_eta, J_jacobian
+        
+        @jit
+        def sub_loop(x, y, x_xi, y_xi, x_eta, y_eta, J_jacobian, max_iterations_, tolerance_):
+            x_xi_ = x_xi.copy()
+            y_xi_ = y_xi.copy()
+            x_eta_ = x_eta.copy()
+            y_eta_ = y_eta.copy()
             # the transitioned indices
-            xi_p1 = np.roll(idx_xi, -1, axis=0)[:, 1:-1]
-            xi_m1 = np.roll(idx_xi, 1, axis=0)[:, 1:-1]
+            xi_p1 = np.zeros((NI, NJ), dtype=np.int32)
+            xi_m1 = np.zeros((NI, NJ), dtype=np.int32)
+            # indices
+            for j in prange(NJ):
+                for i in prange(NI):
+                    xi_p1[i, j] = idx_xi[(i - 1) % NI, j]  # manual np.roll(idx_xi, -1, axis=0)
+            xi_p1 = xi_p1[:, 1:-1]
+            for j in prange(NJ):
+                for i in prange(NI):
+                    xi_m1[i, j] = idx_xi[(i + 1) % NI, j]  # manual np.roll(idx_xi, 1, axis=0)
+            xi_m1 = xi_m1[:, 1:-1]
+            # xi_p1 = np.roll(idx_xi, -1, axis=0)[:, 1:-1]
+            # xi_m1 = np.roll(idx_xi, 1, axis=0)[:, 1:-1]
             xi_0 = idx_xi[:, 1:-1]
             eta_p1 = idx_eta[:, 2:]
             eta_m1 = idx_eta[:, :-2]
             eta_0 = idx_eta[:, 1:-1]
-            # coefficients
-            b_we = x_eta ** 2 + y_eta ** 2
-            beta = x_xi * x_eta + y_xi * y_eta
-            b_sn = x_xi ** 2 + y_xi ** 2
-            b_p = 2 * b_we + 2 * b_sn
-            b_p = np.where(b_p == 0, 1e-8, b_p)  # Avoid division by zero
-            # here I would like to generate a reduced matrix, shape = (NI, NJ-2), and the 2 indices are
-            # given by the xi and eta indices.
-            c_px = - beta * (x_old_iter[xi_p1, eta_p1] - x_old_iter[xi_m1, eta_p1] +
-                             x_old_iter[xi_m1, eta_m1] - x_old_iter[xi_p1, eta_m1]) / 2
-            c_py = - beta * (y_old_iter[xi_p1, eta_p1] - y_old_iter[xi_m1, eta_p1] +
-                             y_old_iter[xi_m1, eta_m1] - y_old_iter[xi_p1, eta_m1]) / 2
-            # TODO: in-place assignment to be fixed when using jax
-            x_new[xi_0, eta_0] = (b_we * x_old_iter[xi_m1, eta_0] + b_we * x_old_iter[xi_p1, eta_0] +
-                     b_sn * x_old_iter[xi_0, eta_m1] + b_sn * x_old_iter[xi_0, eta_p1] +
-                     c_px) / b_p
-            y_new[xi_0, eta_0] = (b_we * y_old_iter[xi_m1, eta_0] + b_we * y_old_iter[xi_p1, eta_0] +
-                     b_sn * y_old_iter[xi_0, eta_m1] + b_sn * y_old_iter[xi_0, eta_p1] +
-                     c_py) / b_p
-            current_max_diff = np.maximum(np.abs(x_new - x_old_iter), np.abs(y_new - y_old_iter))
-            current_max_diff = np.max(current_max_diff)
-            self.x = x_new
-            self.y = y_new
-            self.compute_derivatives_phy_to_com_and_jacobian()
-            if current_max_diff > max_diff_iter:
-                max_diff_iter = current_max_diff
-            
-            if iteration % 200 == 0 or iteration == max_iterations -1 :  # Periodic progress reporting
-                print(f"Iteration {iteration + 1}/{max_iterations}, Max difference: {max_diff_iter:.2e}")
+            # derivatives in inner region
+            x_xi_ = x_xi[:, 1:-1]
+            x_eta_ = x_eta[:,1:-1]
+            y_xi_ = y_xi[:, 1:-1]
+            y_eta_ = y_eta[:, 1:-1]
+            for iteration in prange(max_iterations_):
+                # values of last iteration
+                x_old_iter_ = x.copy()
+                y_old_iter_ = y.copy()
+                x_new = np.zeros_like(x)
+                x_new[:, 0] = x_old_iter_[:, 0]  # inner boundary
+                x_new[:, -1] = x_old_iter_[:, -1]  # outer boundary
+                y_new = np.zeros_like(y)
+                y_new[:, 0] = y_old_iter_[:, 0]  # inner boundary
+                y_new[:, -1] = y_old_iter_[:, -1]  # outer boundary
+                max_diff_iter = 0.0
+                
+                # coefficients
+                b_we = x_eta_ ** 2 + y_eta_ ** 2
+                beta = x_xi_ * x_eta_ + y_xi_ * y_eta_
+                b_sn = x_xi_ ** 2 + y_xi_ ** 2
+                b_p = 2 * b_we + 2 * b_sn
+                b_p = np.where(b_p == 0, 1e-8, b_p)  # Avoid division by zero
+                # here I would like to generate a reduced matrix, shape = (NI, NJ-2), and the 2 indices are
+                # given by the xi and eta indices.
+                
+                # compute c_px , c_py
+                c_px = np.zeros((NI, NJ-2), dtype=np.float64)
+                c_py = np.zeros((NI, NJ-2), dtype=np.float64)
+                for i in prange(NI):
+                    for j in prange(NJ-2):
+                        xi_p1_idx = xi_p1[i, j]
+                        eta_p1_idx = eta_p1[i, j]
+                        xi_m1_idx = xi_m1[i, j]
+                        eta_m1_idx = eta_m1[i, j]
+                        c_px[i, j] = -beta[i, j] * (
+                            x_old_iter_[xi_p1_idx, eta_p1_idx] - x_old_iter_[xi_m1_idx, eta_p1_idx] +
+                            x_old_iter_[xi_m1_idx, eta_m1_idx] - x_old_iter_[xi_p1_idx, eta_m1_idx]
+                        ) / 2
+                        c_py[i, j] = -beta[i, j] * (
+                            y_old_iter_[xi_p1_idx, eta_p1_idx] - y_old_iter_[xi_m1_idx, eta_p1_idx] +
+                            y_old_iter_[xi_m1_idx, eta_m1_idx] - y_old_iter_[xi_p1_idx, eta_m1_idx]
+                        ) / 2
+                # Update x_new , y_new
+                for i in prange(NI):
+                    for j in prange(NJ-2):
+                        xi_0_idx = xi_0[i, j]
+                        eta_0_idx = eta_0[i, j]
+                        x_new[xi_0_idx, eta_0_idx] = (
+                            b_we[i, j] * x_old_iter_[xi_m1[i, j], eta_0_idx] +
+                            b_we[i, j] * x_old_iter_[xi_p1[i, j], eta_0_idx] +
+                            b_sn[i, j] * x_old_iter_[xi_0_idx, eta_m1[i, j]] +
+                            b_sn[i, j] * x_old_iter_[xi_0_idx, eta_p1[i, j]] +
+                            c_px[i, j]
+                        ) / b_p[i, j]
+                        y_new[xi_0_idx, eta_0_idx] = (
+                            b_we[i, j] * y_old_iter_[xi_m1[i, j], eta_0_idx] +
+                            b_we[i, j] * y_old_iter_[xi_p1[i, j], eta_0_idx] +
+                            b_sn[i, j] * y_old_iter_[xi_0_idx, eta_m1[i, j]] +
+                            b_sn[i, j] * y_old_iter_[xi_0_idx, eta_p1[i, j]] +
+                            c_py[i, j]
+                        ) / b_p[i, j]
+                
+                # ----------------Here are the method not supported by numba---------------
+                # c_px = - beta * (x_old_iter_[xi_p1, eta_p1] - x_old_iter_[xi_m1, eta_p1] +
+                #                 x_old_iter_[xi_m1, eta_m1] - x_old_iter_[xi_p1, eta_m1]) / 2
+                # c_py = - beta * (y_old_iter_[xi_p1, eta_p1] - y_old_iter_[xi_m1, eta_p1] +
+                #                 y_old_iter_[xi_m1, eta_m1] - y_old_iter_[xi_p1, eta_m1]) / 2
+                # x_new[xi_0, eta_0] = (b_we * x_old_iter_[xi_m1, eta_0] + b_we * x_old_iter_[xi_p1, eta_0] +
+                #         b_sn * x_old_iter_[xi_0, eta_m1] + b_sn * x_old_iter_[xi_0, eta_p1] +
+                #         c_px) / b_p
+                # y_new[xi_0, eta_0] = (b_we * y_old_iter_[xi_m1, eta_0] + b_we * y_old_iter_[xi_p1, eta_0] +
+                #         b_sn * y_old_iter_[xi_0, eta_m1] + b_sn * y_old_iter_[xi_0, eta_p1] +
+                #         c_py) / b_p
+                # -----------------Here are the method not supported by numba----------------
+                
+                current_max_diff = np.maximum(np.abs(x_new - x_old_iter_), np.abs(y_new - y_old_iter_))
+                current_max_diff = np.max(current_max_diff)
+                x = (alpha) * x_new + (1 - alpha) * x_old_iter_
+                y = (alpha) * y_new + (1 - alpha) * y_old_iter_
+                x_xi_, x_eta_, y_xi_, y_eta_, J_jacobian_ = comput_drv_phy_to_com_and_jcbn(x, y, J_jacobian)
+                if current_max_diff > max_diff_iter:
+                    max_diff_iter = current_max_diff
+                
+                if iteration % 200 == 0 or iteration == max_iterations -1 :  # Periodic progress reporting
+                    iteration_str = (iteration + 1)
+                    max_diff_str = max_diff_iter
+                    print("Iteration", iteration_str, "Max difference:", max_diff_str)
 
-            if max_diff_iter < tolerance:
-                print(f"Converged after {iteration + 1} iterations. Max difference: {max_diff_iter:.2e}")
-                break
+                if max_diff_iter < tolerance_:
+                    fin_iter = iteration + 1
+                    max_diff_fin = max_diff_iter
+                    print("Converged after", fin_iter, "iterations. Max difference:" , max_diff_fin)
+                    break
+            return x, y, x_xi_, y_xi_, x_eta_, y_eta_, J_jacobian_ 
+        
+        def main_loop(x, y, x_xi, y_xi, x_eta, y_eta, J_jacobian, max_iterations=max_iterations, tolerance=tolerance):
+            self.x, self.y, self.x_xi, self.y_xi, self.x_eta, self.y_eta, self.J_jacobian = \
+            sub_loop(x, y, x_xi, y_xi, x_eta, y_eta, J_jacobian, max_iterations, tolerance)
+            
+        main_loop(x, y, x_xi, y_xi, x_eta, y_eta, J_jacobian)
   
     def compute_derivatives_phy_to_com_and_jacobian(self):
         """
@@ -188,51 +298,66 @@ class OGridLaplaceGenerator:
         self.y_eta = np.zeros((self.NI, self.NJ), dtype=float)
         self.J_jacobian = np.zeros((self.NI, self.NJ), dtype=float)
 
-        # Step sizes in computational coordinates
-        # xi_comp values are k/NI, k = 0, ..., NI-1. So step size is 1/NI
-        d_xi = 1.0
+        # static parameters for numba
+        NI = self.NI
+        NJ = self.NJ
+        x = self.x
+        y = self.y
+        x_xi = self.x_xi
+        y_xi = self.y_xi
+        x_eta = self.x_eta
+        y_eta = self.y_eta
+        # set as writable
+        x_xi.setflags(write=True)
+        y_xi.setflags(write=True)
+        x_eta.setflags(write=True)
+        y_eta.setflags(write=True)
         
-        # eta_comp values are k/(NJ-1), k = 0, ..., NJ-1. So step size is 1/(NJ-1)
-        # self.NJ guaranteed > 1 (controlled by __init__)
-        d_eta = 1.0
+        
+        @jit
+        def main_loop(x_xi, y_xi, x_eta, y_eta, d_xi=1.0, d_eta=1.0):
+            J_jacobian = np.zeros((NI, NJ), dtype=float)
+            for i in prange(NI):
+                for j in prange(NJ):
+                    # --- Xi derivatives (circumferential) ---
+                    # Use central differences with periodic boundary handling
+                    ip1 = (i + 1) % NI
+                    im1 = (i - 1 + NI) % NI
+                    
+                    x_xi[i, j] = (x[ip1, j] - x[im1, j]) / (2.0 * d_xi)
+                    y_xi[i, j] = (y[ip1, j] - y[im1, j]) / (2.0 * d_xi)
 
-        for i in range(self.NI):
-            for j in range(self.NJ):
-                # --- Xi derivatives (circumferential) ---
-                # Use central differences with periodic boundary handling
-                ip1 = (i + 1) % self.NI
-                im1 = (i - 1 + self.NI) % self.NI
-                
-                self.x_xi[i, j] = (self.x[ip1, j] - self.x[im1, j]) / (2.0 * d_xi)
-                self.y_xi[i, j] = (self.y[ip1, j] - self.y[im1, j]) / (2.0 * d_xi)
-
-                # --- Eta derivatives (radial) ---
-                # self.NJ guaranteed >= 2
-                if self.NJ == 2:  # Only two lines (j=0, j=1)
-                    # Use first-order one-sided differences. d_eta_norm = 1.0/(2-1) = 1.0
-                    if j == 0:  # Inner boundary (j=0)
-                        self.x_eta[i, j] = (self.x[i, j + 1] - self.x[i, j]) / d_eta
-                        self.y_eta[i, j] = (self.y[i, j + 1] - self.y[i, j]) / d_eta
-                    else:  # Outer boundary (j=1)
-                        self.x_eta[i, j] = (self.x[i, j] - self.x[i, j - 1]) / d_eta
-                        self.y_eta[i, j] = (self.y[i, j] - self.y[i, j - 1]) / d_eta
-                else:  # self.NJ >= 3, can use second-order one-sided on boundaries
-                    if j == 0:  # Inner boundary (j=0, eta=0) - second-order forward
-                        # f'(x0) = (-3f0 + 4f1 - f2)/(2h)
-                        self.x_eta[i, j] = (-3.0 * self.x[i, 0] + 4.0 * self.x[i, 1] - self.x[i, 2]) / (2.0 * d_eta)
-                        self.y_eta[i, j] = (-3.0 * self.y[i, 0] + 4.0 * self.y[i, 1] - self.y[i, 2]) / (2.0 * d_eta)
-                    elif j == self.NJ - 1:  # Outer boundary (j=NJ-1, eta=1) - second-order backward
-                        # f'(x_N) = (3f_N -4f_{N-1} +f_{N-2})/(2h)
-                        self.x_eta[i, j] = (3.0 * self.x[i, self.NJ - 1] - 4.0 * self.x[i, self.NJ - 2] + self.x[i, self.NJ - 3]) / (2.0 * d_eta)
-                        self.y_eta[i, j] = (3.0 * self.y[i, self.NJ - 1] - 4.0 * self.y[i, self.NJ - 2] + self.y[i, self.NJ - 3]) / (2.0 * d_eta)
-                    else:  # Interior points (0 < j < NJ-1) - central differences
-                        self.x_eta[i, j] = (self.x[i, j + 1] - self.x[i, j - 1]) / (2.0 * d_eta)
-                        self.y_eta[i, j] = (self.y[i, j + 1] - self.y[i, j - 1]) / (2.0 * d_eta)
-                
-                # --- Compute Jacobian determinant J ---
-                # J = x_xi * y_eta - x_eta * y_xi
-                self.J_jacobian[i, j] = self.x_xi[i, j] * self.y_eta[i, j] - self.x_eta[i, j] * self.y_xi[i, j]
-        self.J_jacobian = np.where(self.J_jacobian == 0, 1e-8, self.J_jacobian)  # Avoid division by zero
+                    # --- Eta derivatives (radial) ---
+                    # NJ guaranteed >= 2
+                    if NJ == 2:  # Only two lines (j=0, j=1)
+                        # Use first-order one-sided differences. d_eta_norm = 1.0/(2-1) = 1.0
+                        if j == 0:  # Inner boundary (j=0)
+                            x_eta[i, j] = (x[i, j + 1] - x[i, j]) / d_eta
+                            y_eta[i, j] = (y[i, j + 1] - y[i, j]) / d_eta
+                        else:  # Outer boundary (j=1)
+                            x_eta[i, j] = (x[i, j] - x[i, j - 1]) / d_eta
+                            y_eta[i, j] = (y[i, j] - y[i, j - 1]) / d_eta
+                    else:  # NJ >= 3, can use second-order one-sided on boundaries
+                        if j == 0:  # Inner boundary (j=0, eta=0) - second-order forward
+                            # f'(x0) = (-3f0 + 4f1 - f2)/(2h)
+                            x_eta[i, j] = (-3.0 * x[i, 0] + 4.0 * x[i, 1] - x[i, 2]) / (2.0 * d_eta)
+                            y_eta[i, j] = (-3.0 * y[i, 0] + 4.0 * y[i, 1] - y[i, 2]) / (2.0 * d_eta)
+                        elif j == NJ - 1:  # Outer boundary (j=NJ-1, eta=1) - second-order backward
+                            # f'(x_N) = (3f_N -4f_{N-1} +f_{N-2})/(2h)
+                            x_eta[i, j] = (3.0 * x[i, NJ - 1] - 4.0 * x[i, NJ - 2] + x[i, NJ - 3]) / (2.0 * d_eta)
+                            y_eta[i, j] = (3.0 * y[i, NJ - 1] - 4.0 * y[i, NJ - 2] + y[i, NJ - 3]) / (2.0 * d_eta)
+                        else:  # Interior points (0 < j < NJ-1) - central differences
+                            x_eta[i, j] = (x[i, j + 1] - x[i, j - 1]) / (2.0 * d_eta)
+                            y_eta[i, j] = (y[i, j + 1] - y[i, j - 1]) / (2.0 * d_eta)
+                    
+                    # --- Compute Jacobian determinant J ---
+                    # J = x_xi * y_eta - x_eta * y_xi
+                    J_jacobian[i, j] = x_xi[i, j] * y_eta[i, j] - x_eta[i, j] * y_xi[i, j]
+            
+            J_jacobian = np.where(J_jacobian == 0, 1e-8, J_jacobian)  # Avoid division by zero
+            return x_xi, y_xi, x_eta, y_eta, J_jacobian
+        self.x_xi, self.y_xi, self.x_eta, self.y_eta, self.J_jacobian = \
+        main_loop(x_xi, y_xi, x_eta, y_eta)
         
         # print("Derivatives (x_xi, x_eta, y_xi, y_eta) and Jacobian computed and stored")
 
@@ -242,37 +367,61 @@ class OGridLaplaceGenerator:
         self.eta_x = -self.y_xi / self.J_jacobian
         self.eta_y = self.x_xi / self.J_jacobian
         # print("Computed derivatives from computational to physical coordinates (xi_x, xi_y, eta_x, eta_y)")
-
-    def get_coordinates(self):
-        """
-        Return stored physical and computational coordinates.
-
-        Returns:
-            tuple: (x_coords, y_coords, xi_coords, eta_coords)
-                   x_coords (np.ndarray): NIxNJ physical x-coordinate array
-                   y_coords (np.ndarray): NIxNJ physical y-coordinate array
-                   xi_coords (np.ndarray): NIxNJ computational xi-coordinate array (normalized)
-                   eta_coords (np.ndarray): NIxNJ computational eta-coordinate array (normalized)
-        """
-        return self.x, self.y, self.xi_comp, self.eta_comp
-
-    def get_derivatives_and_jacobian(self):
-        """
-        Return stored derivatives and Jacobian
-        """
-        if self.J_jacobian is None:
-            print("Derivatives and Jacobian not computed yet. Call compute_derivatives_and_jacobian() first")
-            return None, None, None, None, None
-        return self.xi_x, self.xi_y, self.eta_x, self.eta_y, self.J_jacobian
     
     def output_to_file(self, filename):
         """Output grid coordinates to a file"""
         # TODO: output an array of self.x, self.y, self.xi, self.eta
-        ...
-        # TODO: output the derivatives and Jacobian in an array
-        self.compute_derivatives_phy_to_com_and_jacobian()
-        self.compute_derivatives_com_to_phy()
-        ...
+    
+    def plot_boundary(self, show_points=False):
+        """Plot inner and outer boundaries"""
+
+        plt.figure(figsize=(10, 8))
+        # Plot inner boundary
+        t_params = np.linspace(0, 1, self.NI, endpoint=False)
+        x_inner, y_inner = zip(*[self.inner_boundary_func(t) for t in t_params])
+        plt.plot(x_inner, y_inner, 'b-', linewidth=2, label='Inner Boundary')
+
+        # Plot outer boundary
+        x_outer, y_outer = zip(*[self.outer_boundary_func(t) for t in t_params])
+        plt.plot(x_outer, y_outer, 'r-', linewidth=2, label='Outer Boundary')
+
+        if show_points:
+            plt.scatter(x_inner, y_inner, color='blue', s=10)
+            plt.scatter(x_outer, y_outer, color='red', s=10)
+
+        plt.xlabel("x (Physical)")
+        plt.ylabel("y (Physical)")
+        plt.title("Boundary Points")
+        plt.axis('equal')
+        plt.grid(True)
+        plt.legend()
+        plt.show()
+    
+    def plot_init_guess(self, show_points=False):
+        """Plot initial guess for grid points"""
+        plt.figure(figsize=(10, 8))
+        
+        # Plot constant-eta lines (look like "rings" or "shells" in O-grid)
+        # self.x[:, j] is line of constant j (eta)
+        for j in range(self.NJ):  # For each eta=constant line
+            # Connect last point to first to close O-grid loop
+            line_x = np.append(self.x[:, j], self.x[0, j])
+            line_y = np.append(self.y[:, j], self.y[0, j])
+            plt.plot(line_x, line_y, 'b-', linewidth=0.8, label='Eta lines' if j == 0 else "")
+
+
+        # Plot constant-xi lines (look like "radial lines" or "spokes")
+        # self.x[i, :] is line of constant i (xi)
+        for i in range(self.NI):  # For each xi=constant line
+            plt.plot(self.x[i, :], self.y[i, :], 'r-', linewidth=0.8, label='Xi lines' if i == 0 else "")
+        
+        plt.xlabel("x (Physical)")
+        plt.ylabel("y (Physical)")
+        plt.title(f"Generated O-grid (NI={self.NI}, NJ={self.NJ})")
+        plt.axis('equal')
+        plt.grid(True, linestyle=':', alpha=0.5)
+        if self.NI > 0 and self.NJ > 0 : plt.legend()
+        plt.show()
     
     def plot_physical_grid(self, show_points=False):
         """Plot generated grid in physical (x,y) plane"""
@@ -337,66 +486,93 @@ class OGridLaplaceGenerator:
         plt.gca().set_aspect('auto', adjustable='box')  # Or 'equal' for equal aspect ratio
         plt.show()
 
-# 示例用法:
 if __name__ == '__main__':
-    # 定义边界函数
-    # t 是一个从 0 到 1 的参数
-    def inner_circle_boundary(t, radius=1.0, center_x=0.0, center_y=0.0):
+    # define inner and outer boundary functions
+    # inner boundary: circle with radius 1.0
+    # outer boundary: circle with radius 3.0
+    # t ranges from 0 to 1
+    
+    def outer_circle_boundary(t, radius=80.0, center_x=0.0, center_y=0.0):
         angle = 2 * np.pi * t
         x = center_x + radius * np.cos(angle)
         y = center_y + radius * np.sin(angle)
         return x, y
 
-    def outer_circle_boundary(t, radius=3.0, center_x=0.0, center_y=0.0):
-        angle = 2 * np.pi * t
-        x = center_x + radius * np.cos(angle)
-        y = center_y + radius * np.sin(angle)
-        return x, y
-
-    # 定义一个更复杂的内边界示例：椭圆
-    def inner_ellipse_boundary(t, a=2.0, b=0.8, center_x=0.0, center_y=0.0): # a: 半长轴, b: 半短轴
+    # ellipse boundary
+    def inner_ellipse_boundary(t, a=2.0, b=0.8, center_x=0.0, center_y=0.0): 
         angle = 2 * np.pi * t
         x = center_x + a * np.cos(angle)
         y = center_y + b * np.sin(angle)
         return x, y
 
-    # 网格参数
-    NI_points = 80  # 周向点数
-    NJ_points = 40  # 径向点数
+    # NACA0012 airfoil boundary
+    def naca0012_airfoil(t, chord_length=1.0):
+        """closed NACA0012 airfoil profile"""
+        max_thickness = 0.12 * chord_length  # max thickness
+        # split the t range into two halves
+        t_scaled = 2 * t  # scale t to [0, 2]
+        
+        if np.isclose(t, 1.0, atol=1e-12):
+            return 1.0, 0.0  # force the trailing edge to be at (1,0)
+        
+        t_scaled = 2 * t
+        if t_scaled <= 1.0:
+            x = 1 - t_scaled  # upper surface
+            y_sign = 1
+        else:
+            x = t_scaled - 1  # lower surface
+            y_sign = -1
+        
+        # front point as 0.0
+        if np.isclose(x, 0.0, atol=1e-6):
+            return 0.0, 0.0
+        
+        # compute thickness distribution
+        yt = (0.12/0.2) * (0.2969*np.sqrt(x) - 0.1260*x - 0.3516*x**2 + 0.2843*x**3 - 0.1015*x**4)
+        return x * chord_length, y_sign * yt * chord_length
 
-    print(f"正在生成 O 型网格, NI={NI_points}, NJ={NJ_points}...")
+    # mesh generation parameters
+    NI_points = 200  # angular points number
+    NJ_points = 100  # axial points number
+    alpha = 0.8     # relaxation factor
+    tol = 1e-5      # convergence tolerance
+    symmetric = True  # symmetric endpoint for inner boundary
+    chord_length = 1.0  # chord length for NACA0012 airfoil
+    radius = 20.0  # radius for outer circle boundary
+    max_iterations = 200000  # max iterations for Laplace solver
+    compute = True  # compute the grid or not
+    
 
-    # === 使用椭圆作为内边界，圆作为外边界 ===
+    print(f"generating O type mesh, NI={NI_points}, NJ={NJ_points}...")
+
+    # === ellipse as inner boundary, circle as outer ===
     generator = OGridLaplaceGenerator(NI_points, NJ_points,
-                                      inner_boundary_func=lambda t: inner_ellipse_boundary(t, a=2.0, b=1),
-                                      outer_boundary_func=lambda t: outer_circle_boundary(t, radius=40.0))
+                                      inner_boundary_func=lambda t: naca0012_airfoil(t, chord_length=chord_length),
+                                      outer_boundary_func=lambda t: outer_circle_boundary(t, radius=radius,
+                                                                                          center_x=0.5 * chord_length,
+                                                                                          center_y=0.0),
+                                      symmetric=symmetric)
 
 
-    print("\n边界和内部点初始猜测已设定。")
-    print(f"内边界 x[0,0]: ({generator.x[0,0]:.3f}, {generator.y[0,0]:.3f})")
-    print(f"外边界 x[0,NJ-1]: ({generator.x[0,NJ_points-1]:.3f}, {generator.y[0,NJ_points-1]:.3f})")
+    print("\ninitializing grid...")
     
-    # 求解拉普拉斯方程以生成网格
-    # omega 通常在 (1.0, 2.0) 之间以获得SOR的良好性能。
-    # 对于JOR（当前实现），omega=1.0 对应于雅可比方法。
-    # 较大的 omega 值 (如 1.8, 1.9) 通常可以加速收敛，但最佳值取决于具体问题。
-    print("\n开始求解拉普拉斯方程...")
-    generator.solve_laplace_equations(max_iterations=30000, tolerance=1e-8)
-
-    # 获取坐标
-    x_physical, y_physical, xi_computational, eta_computational = generator.get_coordinates()
-
-    print("\n网格点坐标示例:")
-    print(f"x[0,0] (物理): {x_physical[0,0]:.3f}, y[0,0] (物理): {y_physical[0,0]:.3f}")
-    print(f"xi[0,0] (计算): {xi_computational[0,0]:.3f}, eta[0,0] (计算): {eta_computational[0,0]:.3f}")
+    # print boundary points
+    # generator.plot_boundary(show_points=True)
     
-    print(f"x[NI/2, NJ/2] (物理): {x_physical[NI_points//2, NJ_points//2]:.3f}, y[NI/2, NJ/2] (物理): {y_physical[NI_points//2, NJ_points//2]:.3f}")
-    print(f"xi[NI/2, NJ/2] (计算): {xi_computational[NI_points//2, NJ_points//2]:.3f}, eta[NI/2, NJ/2] (计算): {eta_computational[NI_points//2, NJ_points//2]:.3f}")
+    # print initial guess
+    # generator.plot_init_guess(show_points=True)
+    
+    if compute:
+        # mesh generation by solving Laplace equations
+        # Jacobian iteration
+        print("\nbeginning to solve Laplace equations...")
+        generator.solve_laplace_equations(max_iterations=max_iterations, tolerance=tol, alpha=alpha)
 
-    # 绘制网格 
-
-    print("\n正在绘制物理网格...")
-    generator.plot_physical_grid(show_points=False)
-    print("正在绘制计算网格...")
-    # generator.plot_computational_grid()
-    print("绘图完成。请查看弹出的窗口。")
+        # Output mesh data to file
+        # generator.output_to_file("mesh_data.txt")
+        print("solve_laplace_equations() completed.")
+        
+        # plotting the grid
+        print("\n plotting the mesh...")
+        generator.plot_physical_grid(show_points=False)
+        print("Plotting completed.")

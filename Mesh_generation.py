@@ -71,7 +71,7 @@ class OGridLaplaceGenerator:
         self._initialize_boundaries(symmetric)
         self._initialize_interior_guess()
 
-    def _initialize_boundaries(self, symmetric_endpoint=False, prt = False):
+    def _initialize_boundaries(self, symmetric_endpoint=False):
         """Set x,y coordinates for inner boundary (eta=0) and outer boundary (eta=NJ-1)"""
         # t_params are values for boundary function parameter 't'
         # These correspond to our normalized xi coordinates
@@ -270,7 +270,7 @@ class OGridLaplaceGenerator:
     
     def solve_laplace_equations_with_source(self, max_iterations=10000, tolerance=1e-6,
                                             alpha = 0.5, intn_lft=-150, intn_rgt=-150, rad_l=0.5, rad_r=0.5,
-                                            let_p=True, let_q=True):
+                                            let_p=True, let_q=True, intn_wall=-150, rad_wall=0.5, wall=True):
         """
         Solve Laplace equations with source term.
         This method is not implemented in the original code.
@@ -296,14 +296,14 @@ class OGridLaplaceGenerator:
         def source(x, y, center_x, center_y, intensity, decay_radius, left=True):
             source_field = np.zeros_like(x)
             r_sq_max = decay_radius ** 2
-            sigma = decay_radius / 3
+            sigma = decay_radius / 5
             for i in prange(NI):
                 for j in prange(NJ):
                     dx = x[i, j] - center_x
                     dy = y[i, j] - center_y
                     r_sq = dx**2 + dy**2
                     if r_sq < r_sq_max:
-                        source_field[i, j] = intensity * np.exp(-r_sq / (2 * sigma**2))
+                        source_field[i, j] = intensity * np.exp(-r_sq / (2 * sigma**2)) * (r_sq / sigma ** 2)
             
             dx_entire = x - center_x
             if left == True:
@@ -315,6 +315,25 @@ class OGridLaplaceGenerator:
             elif left is None:
                 pass
             return source_field
+        
+        @jit
+        def source_wall(x, y, intensity, decay_radius, rad_l = rad_l, rad_r = rad_r, wall=True):
+            source_field = np.zeros_like(x)
+            # deltay = y[int(NJ/2), 2] - y[int(NJ/2), 1]
+            # wallmesh_num = decay_radius / deltay
+            sigma = decay_radius / 5
+            for i in prange(NI):
+                for j in prange(NJ):
+                    dy = y[i, j] - y[i, 0]
+                    dist_l = (x[i, j])**2 + y[i, j]**2
+                    dist_r = (x[i, j] - 1)**2 + y[i, j]**2
+                    if ((dist_l > rad_l**2) and (dist_r > rad_r**2)):
+                        source_field[i, j] = intensity * np.exp(-dy ** 2 / (2 * sigma**2))
+
+            if not wall:
+                source_field *= 0
+            return source_field
+        
         # Jacobian iteration
         @jit
         def comput_drv_phy_to_com_and_jcbn(x, y, J_jacobian, d_xi=1.0, d_eta=1.0):
@@ -393,12 +412,14 @@ class OGridLaplaceGenerator:
             Jacobian_ = J_jacobian
             if let_p:
                 P = source(x, y, 0.05, 0, intn_lft, rad_l, left=True) +\
-                    source(x, y, 0.98, 0, intn_rgt, rad_r, left=False)
+                    source(x, y, 0.98, 0, intn_rgt, rad_r, left=False) +\
+                    source_wall(x, y, intn_wall, rad_wall, wall=wall)
             else:
                 P = source(x, y, 0, 0, 0, 1)
             if let_q:
                 Q = source(x, y, 0, 0, intn_lft, rad_l, left=True) +\
-                    source(x, y, 1, 0, intn_rgt, rad_r, left=False)
+                    source(x, y, 1, 0, intn_rgt, rad_r, left=False) +\
+                    source_wall(x, y, 0, 0.5, wall=wall)
             else:
                 Q = source(x, y, 0, 0, 0, 1)
                 
@@ -467,12 +488,14 @@ class OGridLaplaceGenerator:
                 x_xi_, x_eta_, y_xi_, y_eta_, J_jacobian_ = comput_drv_phy_to_com_and_jcbn(x, y, J_jacobian)
                 if let_p:
                     P = source(x, y, 0.05, 0, intn_lft, rad_l, left=None) +\
-                        source(x, y, 0.98, 0, intn_rgt, rad_r, left=None)
+                        source(x, y, 0.98, 0, intn_rgt, rad_r, left=None) +\
+                        source_wall(x, y, intn_wall, rad_wall, wall=wall)
                 else:
                     P = source(x, y, 0, 0, 0, 1)
                 if let_q:        
                     Q = source(x, y, 0, 0, intn_lft, rad_l, left=True) +\
-                        source(x, y, 1, 0, intn_rgt, rad_r, left=False)
+                        source(x, y, 1, 0, intn_rgt, rad_r, left=False) +\
+                        source_wall(x, y, intn_wall, rad_wall, wall=wall)
                 else:
                     Q = source(x, y, 0, 0, 0, 1)
                 Jacobian_ = J_jacobian
@@ -742,10 +765,6 @@ if __name__ == '__main__':
             x = (1-beta) * (t_scaled - 1) + 0.5 * beta * (1 - np.cos(np.pi * (t_scaled - 1))) # lower surface
             y_sign = -1
         
-        # front point as 0.0
-        if np.isclose(x, 0.0, atol=1e-6):
-            return 0.0, 0.0
-        
         # compute thickness distribution
         yt = (max_thickness/0.2) * (0.2969*np.sqrt(x) - 0.1260*x - 0.3516*x**2 + 0.2843*x**3 - 0.1015*x**4)
         return x * chord_length, y_sign * yt * chord_length
@@ -754,18 +773,21 @@ if __name__ == '__main__':
     NI_points = 200  # angular points number
     NJ_points = 100  # axial points number
     alpha = 0.2     # relaxation factor
-    beta = 0.1     # distribution factor
+    beta = 1     # distribution factor, larger beta means more points near the leading edge
     tol = 1e-4      # convergence tolerance
     symmetric = True  # symmetric endpoint for inner boundary
     chord_length = 1.0  # chord length for NACA0012 airfoil
-    radius = 20.0  # radius for outer circle boundary
-    source_intensity_left = -1000  # source intensity for Laplace solver
+    radius = 5.0  # radius for outer circle boundary
+    source_intensity_left = -5000  # source intensity for Laplace solver
     source_intensity_right = -1000  # source intensity for Laplace solver
-    source_radius_left = 0.5  # source radius for Laplace solver
-    source_radius_right = 0.5  # source radius for Laplace solver
-    let_p = True
-    let_q = False
-    max_iterations = 200000  # max iterations for Laplace solver
+    source_intensity_wall = 100  # source intensity for wall source
+    source_radius_left = 0.2  # source radius for Laplace solver
+    source_radius_right = 0.2  # source radius for Laplace solver
+    source_radius_wall = 0.1  # source radius for wall source
+    let_p = False
+    let_q = True
+    wall = True  # wall source
+    max_iterations = 2000  # max iterations for Laplace solver
     compute = True  # compute the grid or not
     tuning = not compute  # tuning the grid or not
     with_source = True
@@ -804,7 +826,10 @@ if __name__ == '__main__':
                                                         rad_l=source_radius_left,
                                                         rad_r=source_radius_right,
                                                         let_p=let_p,
-                                                        let_q=let_q)
+                                                        let_q=let_q,
+                                                        intn_wall=source_intensity_wall,
+                                                        rad_wall=source_radius_wall,
+                                                        wall=wall)
         else:
             generator.solve_laplace_equations(max_iterations=max_iterations, tolerance=tol,
                                               alpha=alpha,)

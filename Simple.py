@@ -79,7 +79,6 @@ class CavitySIMPLE(DiffSchemes):
             gamma_ux = np.zeros_like(alpha_uxp)  # nx+1, ny
             gamma_uy = np.zeros_like(alpha_uyp)  # nx, ny+1
             if uworder == 2:
-                # 
                 gamma_ux[1:-1] = 0.5 * (alpha_uxp[1:-1] * (self.u[1:-2,1:-1] - self.u[:-3,1:-1]) +
                                         alpha_uxm * (self.u[2:-1,1:-1] - self.u[3:,1:-1]))
                 gamma_ux[0] = 0.5 * alpha_uxm[0] * (self.u[1,1:-1] - self.u[2,1:-1])
@@ -91,7 +90,7 @@ class CavitySIMPLE(DiffSchemes):
                 gamma_uy[:,-1] = 0.5 * alpha_uyp[:,-1] * (self.u[1:,-1] - self.u[1:,-2])
                 gamma_uy[:,-2] = 0.5 * alpha_uyp[:,-2] * (self.u[1:,-2] - self.u[1:,-3])
                 
-            # discretization coefficients (nx,ny)
+            # discretization coefficients (nx-1,ny)
             a_p = (self.dx * self.dy / self.dt) +\
                     self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) +\
                     self.dx * (alpha_uyp[1:-1,1:] - alpha_uyp[1:-1,:-1] + (2 / (self.Re * self.dy)))
@@ -128,40 +127,40 @@ class CavitySIMPLE(DiffSchemes):
             v_avr[:,:-1] = (self.v[:,:-1] + self.v[:,1:]) / 2 
             v_avr[:,-1] = self.v[:,-1]  # last column is the right boundary
             
-            alpha_vyp = np.maximum(v_avr, 0)[1:-1,:]     # nx, ny
-            alpha_vym = np.minimum(v_avr, 0)[1:-1,:]     # nx, ny
+            alpha_vyp = np.maximum(v_avr, 0)[1:-1,:]     # nx, ny+1
+            alpha_vym = np.minimum(v_avr, 0)[1:-1,:]     # nx, ny+1
             
             u_avr = (self.u[:,1:-1] + self.u[:,2:]) / 2
             
             alpha_vxp = np.maximum(u_avr, 0)     # nx+1, ny
             alpha_vxm = np.minimum(u_avr, 0)     # nx+1, ny
-            gamma_vy = np.zeros_like(alpha_vyp)  # nx, ny
+            gamma_vy = np.zeros_like(alpha_vyp)  # nx, ny+1
             gamma_vx = np.zeros_like(alpha_vxp)  # nx+1, ny
             if uworder == 2:
-                gamma_vy[1:-1] = 0.5 * (alpha_vyp[1:-1] * (self.v[1:-2,1:-1] - self.v[:-3,1:-1]) +
-                                        alpha_vym * (self.v[2:-1,1:-1] - self.v[3:,1:-1]))
-                gamma_vy[0] = 0.5 * alpha_vym[0] * (self.v[1,1:-1] - self.v[2,1:-1])
-                gamma_vy[-1] = 0.5 * alpha_vyp[-1] * (self.v[-2,1:-1] - self.v[-3,1:-1])
+                gamma_vy[:,1:-1] = 0.5 * (alpha_vyp[:,1:-1] * (self.v[1:-1,1:-2] - self.v[1:-1,:-3]) +
+                                        alpha_vym * (self.v[1:-1,2:-1] - self.v[1:-1,3]))
+                gamma_vy[:,0] = 0.5 * alpha_vym[:,0] * (self.v[1:-1,1] - self.v[1:-1,2])
+                gamma_vy[:,-1] = 0.5 * alpha_vyp[:,-1] * (self.v[1:-1,-2] - self.v[-1:-1,-3])
                 
-                gamma_vx[:,1:-2] = 0.5 * (alpha_vxp[:,1:-2] * (self.v[1:-2,1:] - self.v[:-3,1:]) +
+                gamma_vx[1:-2] = 0.5 * (alpha_vxp[1:-2,:] * (self.v[1:-2,1:] - self.v[:-3,1:]) +
                                         alpha_vxm * (self.v[2:-1,1:] - self.v[3:,1:]))
-                gamma_vx[:,0] = 0.5 * alpha_vxm[:,0] * (self.v[1:,1] - self.v[2:,1])
-                gamma_vx[:,-1] = 0.5 * alpha_vxp[:,-1] * (self.v[-1,1:] - self.v[-2,1:])
-                gamma_vx[:,-2] = 0.5 * alpha_vxp[:,-2] * (self.v[-2,1:] - self.v[-3,1:])
+                gamma_vx[0] = 0.5 * alpha_vxm[0] * (self.v[1:,1] - self.v[2:,1])
+                gamma_vx[-1] = 0.5 * alpha_vxp[-1] * (self.v[-1,1:] - self.v[-2,1:])
+                gamma_vx[-2] = 0.5 * alpha_vxp[-2] * (self.v[-2,1:] - self.v[-3,1:])
                 
-            # discretization coefficients (nx,ny)
+            # discretization coefficients (nx-1,ny-1)
             a_p = (self.dy * self.dx / self.dt) +\
-                    self.dx * (alpha_vyp[1:-1] - alpha_vym[:-2] + (2 / (self.Re * self.dy))) +\
-                    self.dy * (alpha_vxp[1:-1,1:] - alpha_vxp[1:-1,:-1] + (2 / (self.Re * self.dx)))
-            a_s = self.dx * (alpha_vyp[:-2] + 1 / (self.Re * self.dy))
-            a_n = self.dx * (-alpha_vym[1:-1] + 1 / (self.Re * self.dy))
-            a_w = self.dy * (alpha_vxp[1:-1,:-1] + 1 / (self.Re * self.dx))
-            a_e = self.dy * (-alpha_vxm[1:-1,1:] + 1 / (self.Re * self.dx))
-            a_hat = self.dx * (gamma_vy[1:-1] - gamma_vy[:-2]) +\
-                    self.dy * (gamma_vx[1:-1,1:] - gamma_vx[1:-1,:-1])
+                    self.dx * (alpha_vyp[:,1:-1] - alpha_vym[:,:-2] + (2 / (self.Re * self.dy))) +\
+                    self.dy * (alpha_vxp[1:,1:-1] - alpha_vxp[:-1,1:-1] + (2 / (self.Re * self.dx)))
+            a_s = self.dx * (alpha_vyp[:,:-2] + 1 / (self.Re * self.dy))
+            a_n = self.dx * (-alpha_vym[:,1:-1] + 1 / (self.Re * self.dy))
+            a_w = self.dy * (alpha_vxp[:-1,1:-1] + 1 / (self.Re * self.dx))
+            a_e = self.dy * (-alpha_vxm[1:,1:-1] + 1 / (self.Re * self.dx))
+            a_hat = self.dx * (gamma_vy[:,1:-1] - gamma_vy[:,:-2]) +\
+                    self.dy * (gamma_vx[1:,1:-1] - gamma_vx[:-1,1:-1])
             
             # pressure gradient
-            dP = -(self.p[1:,:] - self.p[:-1,:]) * self.dx
+            dP = -(self.p[:,1:] - self.p[:-1,:]) * self.dx
             
             # update
             self.v_star = (1 - self.alpha_v) * self.v[1:-1,1:-1] + self.alpha_v * (

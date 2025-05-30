@@ -2,16 +2,20 @@ from Diff_schme import DiffSchemes
 import numpy as np
 
 class CavitySIMPLE(DiffSchemes):
-    def __init__(self, name, dt, dx, dy, x, t, y, nu, rho, U_top, 
-                 max_iter=1000, tol=1e-5, **kwargs):
+    def __init__(self, name, dt, dx, x, t, dy, y, nu, rho, U_top, 
+                 max_iter=1000, tol=1e-5, alpha_u=0.7, alpha_p=0.3, **kwargs):
         super().__init__(name, dt, dx, x, t, dy=dy, y=y, **kwargs)
-        self.nu = nu          # 运动粘
+        self.nu = nu          # 运动粘度
         self.rho = rho        # 密度
         self.U_top = U_top    # 顶盖速度
         
         # 网格参数
         self.nx = len(x)      # x方向网格点数
         self.ny = len(y)      # y方向网格点数
+        
+        # 欠松弛因子
+        self.alpha_u = alpha_u  # 速度欠松弛
+        self.alpha_p = alpha_p  # 压力欠松弛
         
         # 交错网格定义
         # 压力网格 (中心网格)
@@ -32,135 +36,201 @@ class CavitySIMPLE(DiffSchemes):
         self.max_iter = max_iter
         self.tol = tol
 
+        # 设置初始边界条件
+        self.apply_boundary_conditions()
+
     def apply_boundary_conditions(self):
-        """应用方腔驱动流的边界条件"""
+        """应用方腔驱动流的无滑移边界条件"""
         # 顶盖移动 (u速度)
-        self.u[:, -1] = 2 * self.U_top - self.u[:, -2]  # 滑移边界条件
+        self.u[:, -1] = self.U_top  # 顶盖x方向速度
+        self.v[:, -1] = 0.0         # 顶盖y方向速度
         
-        # 底部固定
-        self.u[:, 0] = -self.u[:, 1]      # u=0
-        self.v[1:-1, 0] = -self.v[1:-1, 1] # v=0
+        # 底部固定 (无滑移)
+        self.u[:, 0] = 0.0   # u=0
+        self.v[:, 0] = 0.0   # v=0
         
-        # 左侧固定
-        self.u[0, :] = -self.u[1, :]      # u=0
-        self.v[0, :] = -self.v[1, :]      # v=0
+        # 左侧固定 (无滑移)
+        self.u[0, :] = 0.0   # u=0
+        self.v[0, :] = 0.0   # v=0
         
-        # 右侧固定
-        self.u[-1, :] = -self.u[-2, :]    # u=0
-        self.v[-1, :] = -self.v[-2, :]    # v=0
+        # 右侧固定 (无滑移)
+        self.u[-1, :] = 0.0  # u=0
+        self.v[-1, :] = 0.0  # v=0
 
     def solve_momentum_u(self):
         """求解u方向动量方程"""
         for i in range(1, self.nx):
             for j in range(1, self.ny+1):
                 # 对流项 (迎风格式)
-                ue = 0.5 * (self.u[i,j] + self.u[i+1,j])
-                uw = 0.5 * (self.u[i,j] + self.u[i-1,j])
-                vn = 0.5 * (self.v[i,j] + self.v[i+1,j])
-                vs = 0.5 * (self.v[i,j] + self.v[i+1,j-1])
+                u_e = 0.5 * (self.u[i, j] + self.u[i+1, j])
+                u_w = 0.5 * (self.u[i, j] + self.u[i-1, j])
+                v_n = 0.5 * (self.v[i, j] + self.v[i+1, j])
+                v_s = 0.5 * (self.v[i, j] + self.v[i+1, j-1])
+                
+                # 对流项系数
+                F_e = -0.5 * u_e * self.dy
+                F_w = 0.5 * u_w * self.dy
+                F_n = -0.5 * v_n * self.dx
+                F_s = 0.5 * v_s * self.dx
                 
                 # 扩散项系数
-                A_e = -self.nu * self.dt / self.dx**2
-                A_w = -self.nu * self.dt / self.dx**2
-                A_n = -self.nu * self.dt / self.dy**2
-                A_s = -self.nu * self.dt / self.dy**2
+                D_e = self.nu * self.dy / self.dx
+                D_w = self.nu * self.dy / self.dx
+                D_n = self.nu * self.dx / self.dy
+                D_s = self.nu * self.dx / self.dy
+                
+                # 总系数
+                a_e = D_e + max(-F_e, 0)
+                a_w = D_w + max(F_w, 0)
+                a_n = D_n + max(-F_n, 0)
+                a_s = D_s + max(F_s, 0)
                 
                 # 主对角系数
-                A_p = 1 - (A_e + A_w + A_n + A_s)
+                a_p = a_e + a_w + a_n + a_s + (F_e - F_w + F_n - F_s)
                 
                 # 压力梯度项
-                dP = self.p[i-1,j-1] - self.p[i,j-1]
+                dP = (self.p[i, j-1] - self.p[i-1, j-1]) * self.dy
                 
-                # 更新u_star
-                self.u_star[i,j] = (self.u[i,j] * A_p + 
-                                    A_e * self.u[i+1,j] + 
-                                    A_w * self.u[i-1,j] +
-                                    A_n * self.u[i,j+1] +
-                                    A_s * self.u[i,j-1] +
-                                    self.dt * dP / (self.rho * self.dx))
+                # 源项
+                b = dP
+                
+                # 更新u_star (使用欠松弛)
+                self.u_star[i, j] = (1 - self.alpha_u) * self.u[i, j] + self.alpha_u * (
+                    (a_e * self.u[i+1, j] + 
+                     a_w * self.u[i-1, j] +
+                     a_n * self.u[i, j+1] +
+                     a_s * self.u[i, j-1] + b) / a_p
+                )
 
     def solve_momentum_v(self):
         """求解v方向动量方程"""
         for i in range(1, self.nx+1):
             for j in range(1, self.ny):
                 # 对流项 (迎风格式)
-                ue = 0.5 * (self.u[i,j] + self.u[i,j+1])
-                uw = 0.5 * (self.u[i-1,j] + self.u[i-1,j+1])
-                vn = 0.5 * (self.v[i,j] + self.v[i,j+1])
-                vs = 0.5 * (self.v[i,j] + self.v[i,j-1])
+                u_e = 0.5 * (self.u[i, j] + self.u[i, j+1])
+                u_w = 0.5 * (self.u[i-1, j] + self.u[i-1, j+1])
+                v_n = 0.5 * (self.v[i, j] + self.v[i, j+1])
+                v_s = 0.5 * (self.v[i, j] + self.v[i, j-1])
+                
+                # 对流项系数
+                F_e = -0.5 * u_e * self.dy
+                F_w = 0.5 * u_w * self.dy
+                F_n = -0.5 * v_n * self.dx
+                F_s = 0.5 * v_s * self.dx
                 
                 # 扩散项系数
-                A_e = -self.nu * self.dt / self.dx**2
-                A_w = -self.nu * self.dt / self.dx**2
-                A_n = -self.nu * self.dt / self.dy**2
-                A_s = -self.nu * self.dt / self.dy**2
+                D_e = self.nu * self.dy / self.dx
+                D_w = self.nu * self.dy / self.dx
+                D_n = self.nu * self.dx / self.dy
+                D_s = self.nu * self.dx / self.dy
+                
+                # 总系数
+                a_e = D_e + max(-F_e, 0)
+                a_w = D_w + max(F_w, 0)
+                a_n = D_n + max(-F_n, 0)
+                a_s = D_s + max(F_s, 0)
                 
                 # 主对角系数
-                A_p = 1 - (A_e + A_w + A_n + A_s)
+                a_p = a_e + a_w + a_n + a_s + (F_e - F_w + F_n - F_s)
                 
                 # 压力梯度项
-                dP = self.p[i-1,j] - self.p[i-1,j-1]
+                dP = (self.p[i-1, j] - self.p[i-1, j-1]) * self.dx
                 
-                # 更新v_star
-                self.v_star[i,j] = (self.v[i,j] * A_p + 
-                                    A_e * self.v[i+1,j] + 
-                                    A_w * self.v[i-1,j] +
-                                    A_n * self.v[i,j+1] +
-                                    A_s * self.v[i,j-1] +
-                                    self.dt * dP / (self.rho * self.dy))
+                # 源项
+                b = dP
+                
+                # 更新v_star (使用欠松弛)
+                self.v_star[i, j] = (1 - self.alpha_u) * self.v[i, j] + self.alpha_u * (
+                    (a_e * self.v[i+1, j] + 
+                     a_w * self.v[i-1, j] +
+                     a_n * self.v[i, j+1] +
+                     a_s * self.v[i, j-1] + b) / a_p
+                )
 
     def solve_pressure_correction(self):
         """求解压力修正方程"""
         # 初始化源项和系数
         b = np.zeros((self.nx, self.ny))
-        A_p = np.zeros((self.nx, self.ny))
+        a_p = np.zeros((self.nx, self.ny))
         
         # 构建压力修正方程
-        for i in range(self.nx):
-            for j in range(self.ny):
-                # 连续性源项
-                b[i,j] = self.rho * (
-                    (self.u_star[i,j] - self.u_star[i+1,j]) / self.dx +
-                    (self.v_star[i,j] - self.v_star[i,j+1]) / self.dy
-                )
+        for i in range(1, self.nx-1):
+            for j in range(1, self.ny-1):
+                # 连续性源项 (质量不平衡)
+                b[i, j] = self.rho * (
+                    (self.u_star[i, j] - self.u_star[i+1, j]) / self.dx +
+                    (self.v_star[i, j] - self.v_star[i, j+1]) / self.dy
+                ) * self.dx * self.dy
                 
-                # 系数计算
-                A_e = self.dt / (self.rho * self.dx**2)
-                A_w = self.dt / (self.rho * self.dx**2)
-                A_n = self.dt / (self.rho * self.dy**2)
-                A_s = self.dt / (self.rho * self.dy**2)
-                A_p[i,j] = -(A_e + A_w + A_n + A_s)
+                # 系数计算 (使用SIMPLE算法中的d系数)
+                d_e = self.dy / (self.rho * (self.u_star[i+1, j] - self.u_star[i, j] + 1e-10))
+                d_w = self.dy / (self.rho * (self.u_star[i, j] - self.u_star[i-1, j] + 1e-10))
+                d_n = self.dx / (self.rho * (self.v_star[i, j+1] - self.v_star[i, j] + 1e-10))
+                d_s = self.dx / (self.rho * (self.v_star[i, j] - self.v_star[i, j-1] + 1e-10))
+                
+                # 邻居系数
+                a_E = self.rho * d_e * self.dy
+                a_W = self.rho * d_w * self.dy
+                a_N = self.rho * d_n * self.dx
+                a_S = self.rho * d_s * self.dx
+                
+                # 主对角系数
+                a_p[i, j] = a_E + a_W + a_N + a_S
+                
+                # 更新b项
+                b[i, j] -= a_E * self.p_prime[i+1, j] + a_W * self.p_prime[i-1, j] + \
+                            a_N * self.p_prime[i, j+1] + a_S * self.p_prime[i, j-1]
         
-        # 迭代求解压力修正 (Jacobi方法)
-        for _ in range(50):  # 内部迭代次数
-            p_prime_new = np.copy(self.p_prime)
+        # 边界条件: 压力修正的Neumann条件
+        # 左右边界
+        self.p_prime[0, :] = self.p_prime[1, :]
+        self.p_prime[-1, :] = self.p_prime[-2, :]
+        # 上下边界
+        self.p_prime[:, 0] = self.p_prime[:, 1]
+        self.p_prime[:, -1] = self.p_prime[:, -2]
+        
+        # 迭代求解压力修正 (Gauss-Seidel方法)
+        max_inner_iter = 100
+        tol_inner = 1e-3
+        for _ in range(max_inner_iter):
+            p_prime_old = self.p_prime.copy()
             for i in range(1, self.nx-1):
                 for j in range(1, self.ny-1):
-                    p_prime_new[i,j] = (
-                        b[i,j] - 
-                        A_w * self.p_prime[i-1,j] -
-                        A_e * self.p_prime[i+1,j] -
-                        A_s * self.p_prime[i,j-1] -
-                        A_n * self.p_prime[i,j+1]
-                    ) / A_p[i,j]
-            self.p_prime = p_prime_new
+                    self.p_prime[i, j] = (b[i, j] + 
+                                         a_E * self.p_prime[i+1, j] + 
+                                         a_W * self.p_prime[i-1, j] + 
+                                         a_N * self.p_prime[i, j+1] + 
+                                         a_S * self.p_prime[i, j-1]) / a_p[i, j]
+            
+            # 内部迭代收敛检查
+            res = np.max(np.abs(self.p_prime - p_prime_old))
+            if res < tol_inner:
+                break
 
     def correct_velocity_pressure(self):
         """修正速度和压力"""
-        # 压力修正
-        self.p += 0.1 * self.p_prime  # 欠松弛
+        # 压力修正 (使用欠松弛)
+        self.p += self.alpha_p * self.p_prime
         
         # u速度修正
         for i in range(1, self.nx):
             for j in range(1, self.ny+1):
-                dP_prime = self.p_prime[i,j-1] - self.p_prime[i-1,j-1]
-                self.u[i,j] = self.u_star[i,j] + self.dt * dP_prime / (self.rho * self.dx)
+                # 压力梯度修正
+                dP_prime = self.p_prime[i, j-1] - self.p_prime[i-1, j-1]
+                # 速度修正量
+                du = self.dt * dP_prime / (self.rho * self.dx)
+                # 应用修正
+                self.u[i, j] = self.u_star[i, j] + du
         
         # v速度修正
         for i in range(1, self.nx+1):
             for j in range(1, self.ny):
-                dP_prime = self.p_prime[i-1,j] - self.p_prime[i-1,j-1]
-                self.v[i,j] = self.v_star[i,j] + self.dt * dP_prime / (self.rho * self.dy)
+                # 压力梯度修正
+                dP_prime = self.p_prime[i-1, j] - self.p_prime[i-1, j-1]
+                # 速度修正量
+                dv = self.dt * dP_prime / (self.rho * self.dy)
+                # 应用修正
+                self.v[i, j] = self.v_star[i, j] + dv
 
     def solve(self):
         """执行SIMPLE算法主循环"""
@@ -178,19 +248,61 @@ class CavitySIMPLE(DiffSchemes):
             self.solve_pressure_correction()# 求解p'
             self.correct_velocity_pressure()# 修正速度和压力
             
+            # 应用边界条件 (确保边界值不变)
+            self.apply_boundary_conditions()
+            
+            # 计算连续性误差 (质量守恒)
+            mass_error = 0.0
+            for i in range(1, self.nx):
+                for j in range(1, self.ny):
+                    mass_error += abs(
+                        (self.u[i, j] - self.u[i+1, j]) / self.dx +
+                        (self.v[i, j] - self.v[i, j+1]) / self.dy
+                    )
+            mass_error /= (self.nx * self.ny)
+            
             # 检查收敛性
             u_res = np.max(np.abs(self.u - u_old))
             v_res = np.max(np.abs(self.v - v_old))
             
-            if iter % 100 == 0:
-                print(f"Iteration {iter}, U_res: {u_res:.4e}, V_res: {v_res:.4e}")
+            if iter % 10 == 0:
+                print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}")
             
-            if u_res < self.tol and v_res < self.tol:
+            if u_res < self.tol and v_res < self.tol and mass_error < 1e-4:
                 print(f"Converged at iteration {iter}")
                 break
 
     def get_center_velocity(self):
         """获取网格中心的速度场"""
-        u_center = 0.5 * (self.u[1:, 1:-1] + self.u[:-1, 1:-1])
-        v_center = 0.5 * (self.v[1:-1, 1:] + self.v[1:-1, :-1])
-        return u_center, v_center
+        # u在x方向中心，y方向需要平均
+        u_center = np.zeros((self.nx, self.ny))
+        for i in range(self.nx):
+            for j in range(self.ny):
+                u_center[i, j] = 0.5 * (self.u[i, j+1] + self.u[i+1, j+1])
+        
+        # v在y方向中心，x方向需要平均
+        v_center = np.zeros((self.nx, self.ny))
+        for i in range(self.nx):
+            for j in range(self.ny):
+                v_center[i, j] = 0.5 * (self.v[i+1, j] + self.v[i+1, j+1])
+        
+        return u_center, v_center, self.p
+
+    def calculate_streamfunction(self):
+        """计算流函数"""
+        psi = np.zeros((self.nx, self.ny))
+        
+        # 从底部开始积分
+        for i in range(1, self.nx):
+            for j in range(1, self.ny):
+                # 使用中心差分计算速度
+                u_ij = 0.5 * (self.u[i, j+1] + self.u[i+1, j+1])
+                v_ij = 0.5 * (self.v[i+1, j] + self.v[i+1, j+1])
+                
+                # 更新流函数
+                psi[i, j] = psi[i-1, j] - v_ij * self.dx
+                psi[i, j] = psi[i, j-1] + u_ij * self.dy
+        
+        # 归一化
+        psi = psi - np.min(psi)
+        return psi / np.max(psi)

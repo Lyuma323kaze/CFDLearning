@@ -16,7 +16,7 @@ from jax.experimental import sparse
 
 class DiffSchemes:
     def __init__(self, name, dt, dx, x, t,
-                 sigma = None, c = None, a = None, gamma = None, ini_condi = None, bnd_condi = None, folder = None,
+                 sigma = None, c = None, gamma = None, ini_condi = None, bnd_condi = None, folder = None,
                  dy = None, y = None):
         self.dt = dt
         self.dx = dx
@@ -25,9 +25,10 @@ class DiffSchemes:
         self.c = c
         self.gamma = gamma
         self.x = x
-        self,y = y
+        self.y = y
         self.t = t
-        self.a = self.c * self.dx / self.dt
+        if self.c is not None:
+            self.a = self.c * self.dx / self.dt
         self.init_condition = ini_condi
         self.bound_condition = bnd_condi
         self.name = name

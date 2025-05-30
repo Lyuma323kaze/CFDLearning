@@ -9,38 +9,38 @@ class CavitySIMPLE(DiffSchemes):
                  alpha_p=0.3,
                  **kwargs):
         super().__init__(name, dt, dx, x, t, dy=dy, y=y, **kwargs)
-        self.Re = Re          # 运动粘度
-        self.U_top = U_top    # 顶盖速度
+        self.Re = Re          # kinematic viscosity
+        self.U_top = U_top    # upper lid velocity
         
-        # 网格参数
-        self.nx = len(x)      # x方向网格点数
-        self.ny = len(y)      # y方向网格点数
+        # mesh parameters
+        self.nx = len(x)      # x prime point number
+        self.ny = len(y)      # y prime point number
         self.dx = dx
         self.dy = dy
-        # 欠松弛因子
-        self.alpha_u = alpha_u  # 速度欠松弛
-        self.alpha_p = alpha_p  # 压力欠松弛
+        # lack relaxation factors
+        self.alpha_u = alpha_u  # velocity lack relaxation
+        self.alpha_p = alpha_p  # pressure lack relaxation
         
-        # 交错网格定义
-        # 压力网格 (中心网格)
+        # mesh
+        # pressure (prime)
         self.p = np.zeros((self.nx, self.ny))
         
-        # u速度分量 (位于垂直面中心)
+        # u mesh
         self.u = np.zeros((self.nx+1, self.ny+2))
         
-        # v速度分量 (位于水平面中心)
+        # v mesh
         self.v = np.zeros((self.nx+2, self.ny+1))
         
-        # 临时速度和压力修正
+        # modification variables
         self.u_star = np.zeros_like(self.u)
         self.v_star = np.zeros_like(self.v)
         self.p_prime = np.zeros((self.nx, self.ny))
         
-        # 收敛控制
+        # convergency
         self.max_iter = max_iter
         self.tol = tol
 
-        # 设置初始边界条件
+        # BDC
         self.apply_boundary_conditions()
 
     def apply_boundary_conditions(self):
@@ -62,7 +62,7 @@ class CavitySIMPLE(DiffSchemes):
         self.v[-1, :] = 0.0  # v=0
 
     def solve_momentum_u(self, uworder=1, iter_u=50):
-        """求解u方向动量方程"""
+        """solve u-momentum equation"""
         for _ in range(iter_u):
             # upwind coefficients
             u_avr = np.empty((self.nx+1, self.ny+2))
@@ -79,6 +79,7 @@ class CavitySIMPLE(DiffSchemes):
             gamma_ux = np.zeros_like(alpha_uxp)  # nx+1, ny
             gamma_uy = np.zeros_like(alpha_uyp)  # nx, ny+1
             if uworder == 2:
+                # 
                 gamma_ux[1:-1] = 0.5 * (alpha_uxp[1:-1] * (self.u[1:-2,1:-1] - self.u[:-3,1:-1]) +
                                         alpha_uxm * (self.u[2:-1,1:-1] - self.u[3:,1:-1]))
                 gamma_ux[0] = 0.5 * alpha_uxm[0] * (self.u[1,1:-1] - self.u[2,1:-1])
@@ -90,78 +91,96 @@ class CavitySIMPLE(DiffSchemes):
                 gamma_uy[:,-1] = 0.5 * alpha_uyp[:,-1] * (self.u[1:,-1] - self.u[1:,-2])
                 gamma_uy[:,-2] = 0.5 * alpha_uyp[:,-2] * (self.u[1:,-2] - self.u[1:,-3])
                 
-            # discretization coefficients
+            # discretization coefficients (nx,ny)
             a_p = (self.dx * self.dy / self.dt) +\
-                    self.dy * (alpha_uxp[1:] - alpha_uxm[:-1] + (2 / (self.Re * self.dx))) +\
-                    self.dx * (alpha_uyp[:,1:] - alpha_uyp[:,:-1] + (2 / (self.Re * self.dy)))
-            a_w = self.dy * (alpha_uxp[:-1] + 1 / (self.Re * self.dx))
-            a_e = self.dy * (-alpha_uxm[1:] + 1 / (self.Re * self.dx))
-            a_s = self.dx * (alpha_uyp[:,:-1] + 1 / (self.Re * self.dy))
-            a_n = self.dx * (-alpha_uym[:,1:] + 1 / (self.Re * self.dy))
-            a_hat = self.dy * (gamma_ux[1:] - gamma_ux[:-1]) +\
-                    self.dx * (gamma_uy[:,1:] - gamma_uy[:,:-1])
+                    self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) +\
+                    self.dx * (alpha_uyp[1:-1,1:] - alpha_uyp[1:-1,:-1] + (2 / (self.Re * self.dy)))
+            a_w = self.dy * (alpha_uxp[:-2] + 1 / (self.Re * self.dx))
+            a_e = self.dy * (-alpha_uxm[1:-1] + 1 / (self.Re * self.dx))
+            a_s = self.dx * (alpha_uyp[1:-1,:-1] + 1 / (self.Re * self.dy))
+            a_n = self.dx * (-alpha_uym[1:-1,1:] + 1 / (self.Re * self.dy))
+            a_hat = self.dy * (gamma_ux[1:-1] - gamma_ux[:-2]) +\
+                    self.dx * (gamma_uy[1:-1,1:] - gamma_uy[1:-1,:-1])
             
-            # 压力梯度项
+            # pressure gradient
             dP = -(self.p[1:] - self.p[:-1]) * self.dy
             
-            # 源项
-            b = dP
-            
-            # 更新u_star (使用欠松弛)
-            self.u_star = (1 - self.alpha_u) * self.u + self.alpha_u * (
-                (a_e * self.u + 
-                    a_w * self.u +
-                    a_n * self.u +
-                    a_s * self.u + b) / a_p
+            # update
+            self.u_star = (1 - self.alpha_u) * self.u[1:-1,1:-1] + self.alpha_u * (
+                (a_e * self.u[2:,1:-1] + 
+                    a_w * self.u[:-2,1:-1] +
+                    a_n * self.u[1:-1,2:] +
+                    a_s * self.u[1:-1,:-2] +
+                    dP + self.dx * self.dy / self.dt * self.u[1:-1,1:-1] +
+                    a_hat) / a_p
             )
+            diff = np.max(np.abs(self.u_star - self.u[1:-1,1:-1]))
+            self.u[1:-1,1:-1] = self.u_star
+            if diff < self.tol:
+                break
+        return a_e, a_w
 
-    def solve_momentum_v(self, uworder=1):
-        """求解v方向动量方程"""
-        for i in range(1, self.nx+1):
-            for j in range(1, self.ny):
-                # 对流项 (迎风格式)
-                u_e = 0.5 * (self.u[i, j] + self.u[i, j+1])
-                u_w = 0.5 * (self.u[i-1, j] + self.u[i-1, j+1])
-                v_n = 0.5 * (self.v[i, j] + self.v[i, j+1])
-                v_s = 0.5 * (self.v[i, j] + self.v[i, j-1])
+    def solve_momentum_v(self, uworder=1, iter_v=50):
+        """solve momentum equation"""
+        for _ in range(iter_v):
+            # upwind coefficients
+            v_avr = np.empty((self.ny+1, self.nx+2))
+            v_avr[:,:-1] = (self.v[:,:-1] + self.v[:,1:]) / 2 
+            v_avr[:,-1] = self.v[:,-1]  # last column is the right boundary
+            
+            alpha_vyp = np.maximum(v_avr, 0)[1:-1,:]     # nx, ny+1
+            alpha_vym = np.minimum(v_avr, 0)[1:-1,:]     # nx, ny+1
+            
+            u_avr = (self.u[:,1:-1] + self.u[:,2:]) / 2
+            
+            alpha_vxp = np.maximum(u_avr, 0)     # nx+1, ny
+            alpha_vxm = np.minimum(u_avr, 0)     # nx+1, ny
+            gamma_vy = np.zeros_like(alpha_vyp)  # nx, ny+1
+            gamma_vx = np.zeros_like(alpha_vxp)  # nx+1, ny
+            if uworder == 2:
+                # 
+                gamma_vy[1:-1] = 0.5 * (alpha_vyp[1:-1] * (self.v[1:-2,1:-1] - self.v[:-3,1:-1]) +
+                                        alpha_vym * (self.v[2:-1,1:-1] - self.v[3:,1:-1]))
+                gamma_vy[0] = 0.5 * alpha_vym[0] * (self.v[1,1:-1] - self.v[2,1:-1])
+                gamma_vy[-1] = 0.5 * alpha_vyp[-1] * (self.v[-2,1:-1] - self.v[-3,1:-1])
                 
-                # 对流项系数
-                F_e = -0.5 * u_e * self.dy
-                F_w = 0.5 * u_w * self.dy
-                F_n = -0.5 * v_n * self.dx
-                F_s = 0.5 * v_s * self.dx
+                gamma_vx[:,1:-2] = 0.5 * (alpha_vxp[:,1:-2] * (self.v[1:-2,1:] - self.v[:-3,1:]) +
+                                        alpha_vxm * (self.v[2:-1,1:] - self.v[3:,1:]))
+                gamma_vx[:,0] = 0.5 * alpha_vxm[:,0] * (self.v[1:,1] - self.v[2:,1])
+                gamma_vx[:,-1] = 0.5 * alpha_vxp[:,-1] * (self.v[-1,1:] - self.v[-2,1:])
+                gamma_vx[:,-2] = 0.5 * alpha_vxp[:,-2] * (self.v[-2,1:] - self.v[-3,1:])
                 
-                # 扩散项系数
-                D_e = self.nu * self.dy / self.dx
-                D_w = self.nu * self.dy / self.dx
-                D_n = self.nu * self.dx / self.dy
-                D_s = self.nu * self.dx / self.dy
-                
-                # 总系数
-                a_e = D_e + max(-F_e, 0)
-                a_w = D_w + max(F_w, 0)
-                a_n = D_n + max(-F_n, 0)
-                a_s = D_s + max(F_s, 0)
-                
-                # 主对角系数
-                a_p = a_e + a_w + a_n + a_s + (F_e - F_w + F_n - F_s)
-                
-                # 压力梯度项
-                dP = (self.p[i-1, j] - self.p[i-1, j-1]) * self.dx
-                
-                # 源项
-                b = dP
-                
-                # 更新v_star (使用欠松弛)
-                self.v_star[i, j] = (1 - self.alpha_u) * self.v[i, j] + self.alpha_u * (
-                    (a_e * self.v[i+1, j] + 
-                     a_w * self.v[i-1, j] +
-                     a_n * self.v[i, j+1] +
-                     a_s * self.v[i, j-1] + b) / a_p
-                )
-
-    def solve_pressure_correction(self, uworder=1):
-        """求解压力修正方程"""
+            # discretization coefficients (nx,ny)
+            a_p = (self.dy * self.dx / self.dt) +\
+                    self.dx * (alpha_vyp[1:-1] - alpha_vym[:-2] + (2 / (self.Re * self.dy))) +\
+                    self.dy * (alpha_vxp[1:-1,1:] - alpha_vxp[1:-1,:-1] + (2 / (self.Re * self.dx)))
+            a_s = self.dx * (alpha_vyp[:-2] + 1 / (self.Re * self.dy))
+            a_n = self.dx * (-alpha_vym[1:-1] + 1 / (self.Re * self.dy))
+            a_w = self.dy * (alpha_vxp[1:-1,:-1] + 1 / (self.Re * self.dx))
+            a_e = self.dy * (-alpha_vxm[1:-1,1:] + 1 / (self.Re * self.dx))
+            a_hat = self.dx * (gamma_vy[1:-1] - gamma_vy[:-2]) +\
+                    self.dy * (gamma_vx[1:-1,1:] - gamma_vx[1:-1,:-1])
+            
+            # pressure gradient
+            dP = -(self.p[1:,:] - self.p[:-1,:]) * self.dx
+            
+            # update
+            self.v_star = (1 - self.alpha_v) * self.v[1:-1,1:-1] + self.alpha_v * (
+                (a_e * self.v[1:-1,2:] + 
+                    a_w * self.v[1:-1,:-2] +
+                    a_n * self.v[2:,1:-1] +
+                    a_s * self.v[:-2,1:-1] +
+                    dP + self.dy * self.dx / self.dt * self.v[1:-1,1:-1] +
+                    a_hat) / a_p
+            )
+            diff = np.max(np.abs(self.v_star - self.v[1:-1,1:-1]))
+            self.v[1:-1,1:-1] = self.v_star
+            if diff < self.tol:
+                break
+        return a_n, a_s
+    
+    def solve_pressure_correction(self, a_e, a_w, a_n, a_s, uworder=1, iter_p=50):
+        """solve pressure correction equation"""
         # 初始化源项和系数
         b = np.zeros((self.nx, self.ny))
         a_p = np.zeros((self.nx, self.ny))

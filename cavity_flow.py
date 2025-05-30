@@ -9,9 +9,8 @@ y = np.linspace(0, 1, ny)
 dx = x[1] - x[0]
 dy = y[1] - y[0]
 dt = 0.001
-Re = 1000  # 雷诺数
+Re = 400  # 雷诺数
 U_top = 1.0
-nu = U_top * 1.0 / Re  # 运动粘度 (特征长度=1)
 
 # 初始化求解器
 cavity = CavitySIMPLE(
@@ -22,8 +21,7 @@ cavity = CavitySIMPLE(
     t=np.arange(0, 10, dt),
     dy=dy,
     y=y,
-    nu=nu,
-    rho=1.0,
+    Re=Re,
     U_top=U_top,
     alpha_u=0.5,  # 速度欠松弛因子
     alpha_p=0.2,  # 压力欠松弛因子

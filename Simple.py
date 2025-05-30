@@ -2,17 +2,21 @@ from Diff_schme import DiffSchemes
 import numpy as np
 
 class CavitySIMPLE(DiffSchemes):
-    def __init__(self, name, dt, dx, x, t, dy, y, nu, rho, U_top, 
-                 max_iter=1000, tol=1e-5, alpha_u=0.7, alpha_p=0.3, **kwargs):
+    def __init__(self, name, dt, dx, x, t, dy, y, Re, U_top, 
+                 max_iter=1000,
+                 tol=1e-5,
+                 alpha_u=0.7,
+                 alpha_p=0.3,
+                 **kwargs):
         super().__init__(name, dt, dx, x, t, dy=dy, y=y, **kwargs)
-        self.nu = nu          # 运动粘度
-        self.rho = rho        # 密度
+        self.Re = Re          # 运动粘度
         self.U_top = U_top    # 顶盖速度
         
         # 网格参数
         self.nx = len(x)      # x方向网格点数
         self.ny = len(y)      # y方向网格点数
-        
+        self.dx = dx
+        self.dy = dy
         # 欠松弛因子
         self.alpha_u = alpha_u  # 速度欠松弛
         self.alpha_p = alpha_p  # 压力欠松弛
@@ -40,7 +44,7 @@ class CavitySIMPLE(DiffSchemes):
         self.apply_boundary_conditions()
 
     def apply_boundary_conditions(self):
-        """应用方腔驱动流的无滑移边界条件"""
+        """Set boundary values"""
         # 顶盖移动 (u速度)
         self.u[:, -1] = self.U_top  # 顶盖x方向速度
         self.v[:, -1] = 0.0         # 顶盖y方向速度
@@ -57,52 +61,61 @@ class CavitySIMPLE(DiffSchemes):
         self.u[-1, :] = 0.0  # u=0
         self.v[-1, :] = 0.0  # v=0
 
-    def solve_momentum_u(self):
+    def solve_momentum_u(self, uworder=1, iter_u=50):
         """求解u方向动量方程"""
-        for i in range(1, self.nx):
-            for j in range(1, self.ny+1):
-                # 对流项 (迎风格式)
-                u_e = 0.5 * (self.u[i, j] + self.u[i+1, j])
-                u_w = 0.5 * (self.u[i, j] + self.u[i-1, j])
-                v_n = 0.5 * (self.v[i, j] + self.v[i+1, j])
-                v_s = 0.5 * (self.v[i, j] + self.v[i+1, j-1])
+        for _ in range(iter_u):
+            # upwind coefficients
+            u_avr = np.empty((self.nx+1, self.ny+2))
+            u_avr[:-1,:] = (self.u[:-1,:] + self.u[1:,:]) / 2 
+            u_avr[-1,:] = self.u[-1,:]  # last row is the top boundary
+            
+            alpha_uxp = np.maximum(u_avr, 0)[:,1:-1]     # nx+1, ny
+            alpha_uxm = np.minimum(u_avr, 0)[:,1:-1]     # nx+1, ny
+            
+            v_avr = (self.v[1:-1,:] + self.v[2:,:]) / 2
+            
+            alpha_uyp = np.maximum(v_avr, 0)     # nx, ny+1
+            alpha_uym = np.minimum(v_avr, 0)     # nx, ny+1
+            gamma_ux = np.zeros_like(alpha_uxp)  # nx+1, ny
+            gamma_uy = np.zeros_like(alpha_uyp)  # nx, ny+1
+            if uworder == 2:
+                gamma_ux[1:-1] = 0.5 * (alpha_uxp[1:-1] * (self.u[1:-2,1:-1] - self.u[:-3,1:-1]) +
+                                        alpha_uxm * (self.u[2:-1,1:-1] - self.u[3:,1:-1]))
+                gamma_ux[0] = 0.5 * alpha_uxm[0] * (self.u[1,1:-1] - self.u[2,1:-1])
+                gamma_ux[-1] = 0.5 * alpha_uxp[-1] * (self.u[-2,1:-1] - self.u[-3,1:-1])
                 
-                # 对流项系数
-                F_e = -0.5 * u_e * self.dy
-                F_w = 0.5 * u_w * self.dy
-                F_n = -0.5 * v_n * self.dx
-                F_s = 0.5 * v_s * self.dx
+                gamma_uy[:,1:-2] = 0.5 * (alpha_uyp[:,1:-2] * (self.u[1:,1:-2] - self.u[1:,:-3]) +
+                                        alpha_uym * (self.u[1:,2:-1] - self.u[1:,3:]))
+                gamma_uy[:,0] = 0.5 * alpha_uym[:,0] * (self.u[1:,1] - self.u[1:,2])
+                gamma_uy[:,-1] = 0.5 * alpha_uyp[:,-1] * (self.u[1:,-1] - self.u[1:,-2])
+                gamma_uy[:,-2] = 0.5 * alpha_uyp[:,-2] * (self.u[1:,-2] - self.u[1:,-3])
                 
-                # 扩散项系数
-                D_e = self.nu * self.dy / self.dx
-                D_w = self.nu * self.dy / self.dx
-                D_n = self.nu * self.dx / self.dy
-                D_s = self.nu * self.dx / self.dy
-                
-                # 总系数
-                a_e = D_e + max(-F_e, 0)
-                a_w = D_w + max(F_w, 0)
-                a_n = D_n + max(-F_n, 0)
-                a_s = D_s + max(F_s, 0)
-                
-                # 主对角系数
-                a_p = a_e + a_w + a_n + a_s + (F_e - F_w + F_n - F_s)
-                
-                # 压力梯度项
-                dP = (self.p[i, j-1] - self.p[i-1, j-1]) * self.dy
-                
-                # 源项
-                b = dP
-                
-                # 更新u_star (使用欠松弛)
-                self.u_star[i, j] = (1 - self.alpha_u) * self.u[i, j] + self.alpha_u * (
-                    (a_e * self.u[i+1, j] + 
-                     a_w * self.u[i-1, j] +
-                     a_n * self.u[i, j+1] +
-                     a_s * self.u[i, j-1] + b) / a_p
-                )
+            # discretization coefficients
+            a_p = (self.dx * self.dy / self.dt) +\
+                    self.dy * (alpha_uxp[1:] - alpha_uxm[:-1] + (2 / (self.Re * self.dx))) +\
+                    self.dx * (alpha_uyp[:,1:] - alpha_uyp[:,:-1] + (2 / (self.Re * self.dy)))
+            a_w = self.dy * (alpha_uxp[:-1] + 1 / (self.Re * self.dx))
+            a_e = self.dy * (-alpha_uxm[1:] + 1 / (self.Re * self.dx))
+            a_s = self.dx * (alpha_uyp[:,:-1] + 1 / (self.Re * self.dy))
+            a_n = self.dx * (-alpha_uym[:,1:] + 1 / (self.Re * self.dy))
+            a_hat = self.dy * (gamma_ux[1:] - gamma_ux[:-1]) +\
+                    self.dx * (gamma_uy[:,1:] - gamma_uy[:,:-1])
+            
+            # 压力梯度项
+            dP = -(self.p[1:] - self.p[:-1]) * self.dy
+            
+            # 源项
+            b = dP
+            
+            # 更新u_star (使用欠松弛)
+            self.u_star = (1 - self.alpha_u) * self.u + self.alpha_u * (
+                (a_e * self.u + 
+                    a_w * self.u +
+                    a_n * self.u +
+                    a_s * self.u + b) / a_p
+            )
 
-    def solve_momentum_v(self):
+    def solve_momentum_v(self, uworder=1):
         """求解v方向动量方程"""
         for i in range(1, self.nx+1):
             for j in range(1, self.ny):
@@ -147,7 +160,7 @@ class CavitySIMPLE(DiffSchemes):
                      a_s * self.v[i, j-1] + b) / a_p
                 )
 
-    def solve_pressure_correction(self):
+    def solve_pressure_correction(self, uworder=1):
         """求解压力修正方程"""
         # 初始化源项和系数
         b = np.zeros((self.nx, self.ny))
@@ -232,7 +245,7 @@ class CavitySIMPLE(DiffSchemes):
                 # 应用修正
                 self.v[i, j] = self.v_star[i, j] + dv
 
-    def solve(self):
+    def solve(self, uworder=1):
         """执行SIMPLE算法主循环"""
         for iter in range(self.max_iter):
             # 保存上一步的速度场
@@ -243,9 +256,9 @@ class CavitySIMPLE(DiffSchemes):
             self.apply_boundary_conditions()
             
             # SIMPLE步骤
-            self.solve_momentum_u()        # 求解u*
-            self.solve_momentum_v()         # 求解v*
-            self.solve_pressure_correction()# 求解p'
+            self.solve_momentum_u(uworder)        # 求解u*
+            self.solve_momentum_v(uworder)         # 求解v*
+            self.solve_pressure_correction(uworder) # 求解p'
             self.correct_velocity_pressure()# 修正速度和压力
             
             # 应用边界条件 (确保边界值不变)

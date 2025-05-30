@@ -1,11 +1,11 @@
-from Diff_schme import Diffschemes
+from Diff_schme import DiffSchemes
 import numpy as np
 
 class CavitySIMPLE(DiffSchemes):
-    def __init__(self, name, dt, dx, x, t, dy, y, nu, rho, U_top, 
+    def __init__(self, name, dt, dx, dy, x, t, y, nu, rho, U_top, 
                  max_iter=1000, tol=1e-5, **kwargs):
         super().__init__(name, dt, dx, x, t, dy=dy, y=y, **kwargs)
-        self.nu = nu          # 运动粘度
+        self.nu = nu          # 运动粘
         self.rho = rho        # 密度
         self.U_top = U_top    # 顶盖速度
         

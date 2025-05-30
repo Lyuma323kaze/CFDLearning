@@ -124,21 +124,20 @@ class CavitySIMPLE(DiffSchemes):
         """solve momentum equation"""
         for _ in range(iter_v):
             # upwind coefficients
-            v_avr = np.empty((self.ny+1, self.nx+2))
+            v_avr = np.empty((self.nx+2, self.ny+1))
             v_avr[:,:-1] = (self.v[:,:-1] + self.v[:,1:]) / 2 
             v_avr[:,-1] = self.v[:,-1]  # last column is the right boundary
             
-            alpha_vyp = np.maximum(v_avr, 0)[1:-1,:]     # nx, ny+1
-            alpha_vym = np.minimum(v_avr, 0)[1:-1,:]     # nx, ny+1
+            alpha_vyp = np.maximum(v_avr, 0)[1:-1,:]     # nx, ny
+            alpha_vym = np.minimum(v_avr, 0)[1:-1,:]     # nx, ny
             
             u_avr = (self.u[:,1:-1] + self.u[:,2:]) / 2
             
             alpha_vxp = np.maximum(u_avr, 0)     # nx+1, ny
             alpha_vxm = np.minimum(u_avr, 0)     # nx+1, ny
-            gamma_vy = np.zeros_like(alpha_vyp)  # nx, ny+1
+            gamma_vy = np.zeros_like(alpha_vyp)  # nx, ny
             gamma_vx = np.zeros_like(alpha_vxp)  # nx+1, ny
             if uworder == 2:
-                # 
                 gamma_vy[1:-1] = 0.5 * (alpha_vyp[1:-1] * (self.v[1:-2,1:-1] - self.v[:-3,1:-1]) +
                                         alpha_vym * (self.v[2:-1,1:-1] - self.v[3:,1:-1]))
                 gamma_vy[0] = 0.5 * alpha_vym[0] * (self.v[1,1:-1] - self.v[2,1:-1])

@@ -27,7 +27,8 @@ class DiffSchemes:
         self.x = x
         self,y = y
         self.t = t
-        self.a = self.c * self.dx / self.dt
+        if self.c is not None:
+            self.a = self.c * self.dx / self.dt
         self.init_condition = ini_condi
         self.bound_condition = bnd_condi
         self.name = name

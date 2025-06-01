@@ -9,7 +9,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
         涡量-流函数方法求解泊肃叶流动
         :param nu: 运动粘度
         :param U0: 中心线速度
-        :param H: 管道高度（y方向）
+        :param H: 管道高度(y方向)
         """
         super().__init__(name, dt, dx, x, t, dy=dy, y=y, 
                          ini_condi=ini_condi, bnd_condi=bnd_condi, folder=folder)
@@ -18,9 +18,11 @@ class VorticityStreamPoiseuille(DiffSchemes):
         self.H = H          # 管道高度
         self.ny = len(y)    # y方向网格数
         
-        # 初始化流函数和涡量场
+        # initialize fields (nx, ny)
         self.psi = None
         self.vorticity = None
+        self.u = None
+        self.v = None
         self.initialize_fields()
         
         # 设置边界条件
@@ -31,42 +33,32 @@ class VorticityStreamPoiseuille(DiffSchemes):
         nx, ny = len(self.x), len(self.y)
         self.psi = np.zeros((nx, ny))
         self.vorticity = np.zeros((nx, ny))
+        self.u = np.zeros((nx, ny))
+        self.v = np.zeros((nx, ny))
         
-        # 初始条件：抛物线速度剖面
-        for j in range(ny):
-            y_val = self.y[j]
-            u = self.U0 * (1 - (y_val - 0.5*self.H)**2 / (0.5*self.H)**2)
-            self.psi[:, j] = np.cumsum([u * self.dy] * nx)  # 积分得到流函数初值
+        # uniform inlet and initial condition
+        self.u = self.U0 * np.ones((nx, ny))  # initial value
+        self.psi = np.cumsum(self.u, axis=0) * self.dy  # 积分得到流函数初值
+        
+        # # 初始条件：抛物线速度剖面
+        # u_mtx = self.U0 * (1 - (self.y - 0.5*self.H)**2 / (0.5*self.H)**2)
+        # self.psi = np.cumsum(u_mtx[:,np.newaxis] * self.dy * np.ones((1, nx)), axis=1)  # 积分得到流函数初值
+        # for j in range(ny):
+        #     y_val = self.y[j]
+        #     u = self.U0 * (1 - (y_val - 0.5*self.H)**2 / (0.5*self.H)**2)
+        #     self.psi[:, j] = np.cumsum([u * self.dy] * nx)  # 积分得到流函数初值
 
     def set_boundary_conditions(self):
         """设置二维泊肃叶流动的边界条件"""
         # 顶底边界 (无滑移条件)
-        for i in range(len(self.x)):
-            # 底部壁面 (y=0)
-            self.psi[i, 0] = 0
-            self.vorticity[i, 0] = -2 * self.psi[i, 1] / self.dy**2
-            
-            # 顶部壁面 (y=H)
-            self.psi[i, -1] = 0
-            self.vorticity[i, -1] = -2 * self.psi[i, -2] / self.dy**2
+        self.psi[:, 0] = 0  # 底部壁面 (y=0)
+        self.psi[:, -1] = self.psi[0, -1]  # 顶部壁面 (y=H)
+        self.vorticity[:, 0] = 2 * self.psi[:, 1] / self.dy**2  # 底部壁面涡量
+        self.vorticity[:, -1] = 2 * self.psi[:, -2] / self.dy**2  # 顶部壁面涡量
         
-        # 入口边界 (给定抛物线剖面)
-        for j in range(1, self.ny-1):
-            y_val = self.y[j]
-            u_in = self.U0 * (1 - (y_val - 0.5*self.H)**2 / (0.5*self.H)**2)
-            self.psi[0, j] = u_in * self.y[j]  # 流函数入口条件
-            
-            # 涡量入口条件 (∂u/∂y)
-            if j == 0:
-                dudy = (u_in - 0) / self.dy
-            elif j == self.ny-1:
-                dudy = (0 - u_in) / self.dy
-            else:
-                u_above = self.U0 * (1 - (self.y[j+1] - 0.5*self.H)**2 / (0.5*self.H)**2)
-                u_below = self.U0 * (1 - (self.y[j-1] - 0.5*self.H)**2 / (0.5*self.H)**2)
-                dudy = (u_above - u_below) / (2 * self.dy)
-            self.vorticity[0, j] = -dudy
-        
+        self.vorticity[0, 1:-1] = 2 * (self.psi[1, 1:-1] - self.psi[0, 1:-1]) / self.dx**2 +\
+                                (self.psi[0, 2:] - 2 * self.psi[0, 1:-1] + self.psi[0, :-2]) / self.dx**2  # 左侧壁面涡量      
+
         # 出口边界 (充分发展流)
         self.vorticity[-1, :] = self.vorticity[-2, :]  # ∂ω/∂x = 0
         self.psi[-1, :] = 2 * self.psi[-2, :] - self.psi[-3, :]  # ∂²ψ/∂x² = 0

@@ -25,7 +25,7 @@ class DiffSchemes:
         self.c = c
         self.gamma = gamma
         self.x = x
-        self,y = y
+        self.y = y
         self.t = t
         if self.c is not None:
             self.a = self.c * self.dx / self.dt

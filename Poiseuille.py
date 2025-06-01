@@ -4,9 +4,9 @@ from vorStream import VorticityStreamPoiseuille
 
 # 参数设置
 Lx, Ly = 10.0, 1.0       # 流域尺寸
-nx, ny = 50, 30           # 网格数量
+nx, ny = 100, 100           # 网格数量
 dx, dy = Lx/(nx-1), Ly/(ny-1)
-cfl = 0.2
+cfl = 0.05
 dt = min(cfl * dx, cfl * dy)                # 时间步长
 nu = 0.1                  # 运动粘度
 U0 = 1.0                  # 中心线速度

@@ -47,8 +47,10 @@ class VorticityStreamPoiseuille(DiffSchemes):
         self.psi[:, 0] = 0
         self.psi[:, -1] = self.psi[0, -1]
         
-        self.u[:, -1] = 0, self.u[:, 0] = 0  
-        self.v[:, 0] = 0, self.v[:, -1] = 0  
+        self.u[:, -1] = 0
+        self.u[:, 0] = 0  
+        self.v[:, 0] = 0
+        self.v[:, -1] = 0  
         
         self.vorticity[:, 0] = 2 * self.psi[:, 1] / self.dy**2  
         self.vorticity[:, -1] = 2 * self.psi[:, -2] / self.dy**2  
@@ -116,7 +118,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
             psi_new = np.copy(self.psi)
             psi_new[1:-2, 1:-1] = 0.5 * (self.dx ** (-2) + self.dy ** (-2)) ** -1 * (
                 (self.psi[2:-1, 1:-1] + self.psi[:-3, 1:-1]) / self.dx ** 2 +
-                (self.psi[1:-1, 2:] + self.psi[1:-1, :-2]) / self.dy ** 2 -
+                (self.psi[1:-2, 2:] + self.psi[1:-2, :-2]) / self.dy ** 2 -
                 self.vorticity[1:-2, 1:-1]
             )
             psi_new[-2, 1:-1] = 0.5 * (-self.dy ** 2 * self.vorticity[-2, 1:-1] + 

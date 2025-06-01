@@ -16,6 +16,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
         self.nu = nu        # 运动粘度
         self.U0 = U0        # 中心线最大速度
         self.H = H          # 管道高度
+        self.Re = U0 * H / nu  # 雷诺数
         self.ny = len(y)    # y方向网格数
         
         # initialize fields (nx, ny)
@@ -40,28 +41,30 @@ class VorticityStreamPoiseuille(DiffSchemes):
         self.u = self.U0 * np.ones((nx, ny))  # initial value
         self.psi = np.cumsum(self.u, axis=0) * self.dy  # 积分得到流函数初值
         
-        # # 初始条件：抛物线速度剖面
-        # u_mtx = self.U0 * (1 - (self.y - 0.5*self.H)**2 / (0.5*self.H)**2)
-        # self.psi = np.cumsum(u_mtx[:,np.newaxis] * self.dy * np.ones((1, nx)), axis=1)  # 积分得到流函数初值
-        # for j in range(ny):
-        #     y_val = self.y[j]
-        #     u = self.U0 * (1 - (y_val - 0.5*self.H)**2 / (0.5*self.H)**2)
-        #     self.psi[:, j] = np.cumsum([u * self.dy] * nx)  # 积分得到流函数初值
-
     def set_boundary_conditions(self):
         """设置二维泊肃叶流动的边界条件"""
-        # 顶底边界 (无滑移条件)
-        self.psi[:, 0] = 0  # 底部壁面 (y=0)
-        self.psi[:, -1] = self.psi[0, -1]  # 顶部壁面 (y=H)
-        self.vorticity[:, 0] = 2 * self.psi[:, 1] / self.dy**2  # 底部壁面涡量
-        self.vorticity[:, -1] = 2 * self.psi[:, -2] / self.dy**2  # 顶部壁面涡量
+        # upper and lower wall conditions
+        self.psi[:, 0] = 0
+        self.psi[:, -1] = self.psi[0, -1]
         
+        self.u[:, -1] = 0, self.u[:, 0] = 0  
+        self.v[:, 0] = 0, self.v[:, -1] = 0  
+        
+        self.vorticity[:, 0] = 2 * self.psi[:, 1] / self.dy**2  
+        self.vorticity[:, -1] = 2 * self.psi[:, -2] / self.dy**2  
+        # inlet
         self.vorticity[0, 1:-1] = 2 * (self.psi[1, 1:-1] - self.psi[0, 1:-1]) / self.dx**2 +\
-                                (self.psi[0, 2:] - 2 * self.psi[0, 1:-1] + self.psi[0, :-2]) / self.dx**2  # 左侧壁面涡量      
+                                (self.psi[0, 2:] - 2 * self.psi[0, 1:-1] + self.psi[0, :-2]) / self.dx**2     
 
-        # 出口边界 (充分发展流)
-        self.vorticity[-1, :] = self.vorticity[-2, :]  # ∂ω/∂x = 0
-        self.psi[-1, :] = 2 * self.psi[-2, :] - self.psi[-3, :]  # ∂²ψ/∂x² = 0
+        # outlet (fully developed flow)
+        self.vorticity[-1, :] = self.vorticity[-2, :]  
+        self.psi[-1, :] = 2 * self.psi[-2, :] - self.psi[-3, :]
+        
+        # update u,v values for solving vorticity
+        self.u[1:-1, 1:-1] = (self.psi[1:-1, 2:] - self.psi[1:-1, :-2]) / (2 * self.dy)
+        self.v[1:-1, 1:-1] = -(self.psi[2:, 1:-1] - self.psi[:-2, 1:-1]) / (2 * self.dx)
+        self.u[-1] = self.u[-2]  # outlet condition
+        self.v[-1] = self.v[-2]
 
     def solve(self, max_iter=10000, tol=1e-6):
         """求解稳态涡量-流函数方程"""
@@ -71,8 +74,8 @@ class VorticityStreamPoiseuille(DiffSchemes):
             # 1. 求解涡量输运方程
             self.solve_vorticity_transport()
             
-            # 2. 求解泊松方程 (∇²ψ = -ω)
-            self.solve_poisson()
+            # 2. 求解泊松方程 (∇²ψ = ω)
+            self.solve_psi_poisson()
             
             # 3. 更新边界条件
             self.set_boundary_conditions()
@@ -86,65 +89,45 @@ class VorticityStreamPoiseuille(DiffSchemes):
             print("Reached maximum iterations")
 
     def solve_vorticity_transport(self):
-        """求解涡量输运方程 (显式方法)"""
-        new_vort = np.zeros_like(self.vorticity)
+        """solve vorticity transport equation (FTCS)"""
+        new_vort = np.copy(self.vorticity)
         
-        for i in range(1, len(self.x)-1):
-            for j in range(1, self.ny-1):
-                # 计算速度分量 (u = ∂ψ/∂y, v = -∂ψ/∂x)
-                u = (self.psi[i, j+1] - self.psi[i, j-1]) / (2 * self.dy)
-                v = -(self.psi[i+1, j] - self.psi[i-1, j]) / (2 * self.dx)
-                
-                # 涡量导数
-                dω_dx = (self.vorticity[i+1, j] - self.vorticity[i-1, j]) / (2 * self.dx)
-                dω_dy = (self.vorticity[i, j+1] - self.vorticity[i, j-1]) / (2 * self.dy)
-                
-                # 扩散项
-                laplacian_ω = (self.vorticity[i+1, j] - 2*self.vorticity[i, j] + self.vorticity[i-1, j]) / self.dx**2 + \
-                              (self.vorticity[i, j+1] - 2*self.vorticity[i, j] + self.vorticity[i, j-1]) / self.dy**2
-                
-                # 涡量输运方程: ∂ω/∂t + u·∇ω = ν∇²ω
-                # 稳态: u·∇ω = ν∇²ω
-                new_vort[i, j] = self.vorticity[i, j] + self.dt * (
-                    self.nu * laplacian_ω - (u * dω_dx + v * dω_dy)
-                )
-        
-        # 更新内部点的涡量
+        # change values [1:-1, 1:-1]
+        omega_change = (self.dt / self.Re) * ((self.vorticity[2:,1:-1] 
+                                               - 2 * self.vorticity[1:-1,1:-1] 
+                                               + self.vorticity[:-2,1:-1]) / self.dx**2 + 
+                                              (self.vorticity[1:-1,2:]
+                                               - 2 * self.vorticity[1:-1,1:-1]
+                                               + self.vorticity[1:-1,:-2]) / self.dy**2) + \
+                        (self.dt / self.dx) * (self.u[1:-1, 1:-1] *
+                                               (self.vorticity[2:, 1:-1] - self.vorticity[:-2, 1:-1]) / 2) + \
+                        (self.dt / self.dy) * (self.v[1:-1, 1:-1] *
+                                               (self.vorticity[1:-1, 2:] - self.vorticity[1:-1, :-2]) / 2)
+        # update values for inner points
+        new_vort[1:-1,1:-1] = self.vorticity[1:-1, 1:-1] + omega_change
         self.vorticity[1:-1, 1:-1] = new_vort[1:-1, 1:-1]
 
-    def solve_poisson(self, max_iter=100, tol=1e-4):
-        """使用迭代法求解泊松方程 ∇²ψ = -ω"""
+    def solve_psi_poisson(self, max_iter=100, tol=1e-4):
+        """solve Poisson equation for stream function"""
         for _ in range(max_iter):
             psi_old = self.psi.copy()
             
-            for i in range(1, len(self.x)-1):
-                for j in range(1, self.ny-1):
-                    # Jacobi迭代更新
-                    self.psi[i, j] = 0.25 * (
-                        self.psi[i+1, j] + self.psi[i-1, j] +
-                        self.psi[i, j+1] + self.psi[i, j-1] +
-                        self.dx**2 * self.vorticity[i, j]
-                    )
+            # container for [1:-1, 1:-1] points
+            psi_new = np.copy(self.psi)
+            psi_new[1:-2, 1:-1] = 0.5 * (self.dx ** (-2) + self.dy ** (-2)) ** -1 * (
+                (self.psi[2:-1, 1:-1] + self.psi[:-3, 1:-1]) / self.dx ** 2 +
+                (self.psi[1:-1, 2:] + self.psi[1:-1, :-2]) / self.dy ** 2 -
+                self.vorticity[1:-2, 1:-1]
+            )
+            psi_new[-2, 1:-1] = 0.5 * (-self.dy ** 2 * self.vorticity[-2, 1:-1] + 
+                self.psi[-2, 2:] + self.psi[-2, :-2])
+            
+            self.psi[1:-1, 1:-1] = psi_new[1:-1, 1:-1]
             
             # 检查收敛
             if np.max(np.abs(self.psi - psi_old)) < tol:
                 break
 
     def get_velocity_field(self):
-        """从流函数计算速度场"""
-        u = np.zeros_like(self.psi)
-        v = np.zeros_like(self.psi)
-        
-        # 内部点
-        for i in range(1, len(self.x)-1):
-            for j in range(1, self.ny-1):
-                u[i, j] = (self.psi[i, j+1] - self.psi[i, j-1]) / (2 * self.dy)
-                v[i, j] = -(self.psi[i+1, j] - self.psi[i-1, j]) / (2 * self.dx)
-        
-        # 边界处理 (使用单边差分)
-        u[:, 0] = (self.psi[:, 1] - self.psi[:, 0]) / self.dy
-        u[:, -1] = (self.psi[:, -1] - self.psi[:, -2]) / self.dy
-        v[0, :] = -(self.psi[1, :] - self.psi[0, :]) / self.dx
-        v[-1, :] = -(self.psi[-1, :] - self.psi[-2, :]) / self.dx
-        
-        return u, v    
+        """return velocity field (u, v)"""
+        return self.u, self.v  

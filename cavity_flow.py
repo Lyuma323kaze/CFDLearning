@@ -3,12 +3,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # 定义计算域和参数
-nx, ny = 50, 50
+nx, ny = 200, 200
 x = np.linspace(0, 1, nx)
 y = np.linspace(0, 1, ny)
 dx = x[1] - x[0]
 dy = y[1] - y[0]
-dt = 0.001
+cfl = 0.005
+dt = cfl * min(dx, dy)  # 时间步长
 Re = 400  # 雷诺数
 U_top = 1.0
 
@@ -23,8 +24,8 @@ cavity = CavitySIMPLE(
     y=y,
     Re=Re,
     U_top=U_top,
-    alpha_u=0.5,  # 速度欠松弛因子
-    alpha_p=0.2,  # 压力欠松弛因子
+    alpha_u=1,  # 速度欠松弛因子
+    alpha_p=0.8,  # 压力欠松弛因子
     max_iter=500,
     tol=1e-5
 )

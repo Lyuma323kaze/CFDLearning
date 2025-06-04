@@ -46,44 +46,44 @@ class CavitySIMPLE(DiffSchemes):
 
     def apply_boundary_conditions(self):
         """Set boundary values"""
-        # 顶盖移动 (u速度)
+        # Upper lid moving (u velocity)
         self.u[:, -1] = 2 * self.U_top - self.u[:, -2]  # upper x cover by virtual node
         # self.u[:, -1] = self.U_top  # upper x cover by virtual node
-        self.v[:, -1] = 0.0         # 顶盖y方向速度
+        self.v[:, -1] = 0.0         # v velocity on the top
         
-        # 底部固定 (无滑移)
+        # bottom fixed (no slip)
         self.u[:, 0] = -self.u[:, 1]   # u=0 by virtual node
         # self.u[:, 0] = 0.0
         self.v[:, 0] = 0.0   # v=0
         
-        # 左侧固定 (无滑移)
+        # left side fixed (no slip)
         self.u[0, :] = 0.0   # u=0
         self.v[0, :] = -self.v[1, :]   # v=0 by virtual node
         # self.v[0, :] = 0.0   # v=0 by virtual node
         
-        # 右侧固定 (无滑移)
+        # right side fixed (no slip)
         self.u[-1, :] = 0.0  # u=0
         self.v[-1, :] = -self.v[-2, :]  # v=0 by virtual node
         # self.v[-1, :] = 0.0  # v=0 by virtual node
 
     def apply_boundary_conditions_star(self):
         """Set boundary values for prediction values"""
-        # 顶盖移动 (u速度)
+        # upper lid moving (u velocity)
         self.u_star[:, -1] = 2 * self.U_top - self.u_star[:, -2]  # upper x cover by virtual node
         # self.u_star[:, -1] = self.U_top  # upper x cover by virtual node
-        self.v_star[:, -1] = 0.0         # 顶盖y方向速度
+        self.v_star[:, -1] = 0.0         # v velocity on the top
         
-        # 底部固定 (无滑移)
+        # bottom fixed (no slip)
         self.u_star[:, 0] = -self.u_star[:, 1]   # u=0 by virtual node
         # self.u_star[:, 0] = 0.0
         self.v_star[:, 0] = 0.0   # v=0
         
-        # 左侧固定 (无滑移)
+        # left side fixed (no slip)
         self.u_star[0, :] = 0.0   # u=0
         self.v_star[0, :] = -self.v_star[1, :]   # v=0 by virtual node
         # self.v_star[0, :] = 0.0
         
-        # 右侧固定 (无滑移)
+        # right side fixed (no slip)
         self.u_star[-1, :] = 0.0  # u=0
         self.v_star[-1, :] = -self.v_star[-2, :]  # v=0 by virtual node
         # self.v_star[-1, :] = 0.0
@@ -243,7 +243,7 @@ class CavitySIMPLE(DiffSchemes):
             ) * self.alpha_p + (1 - self.alpha_p) * self.p_prime
 
             
-            # 内部迭代收敛检查
+            # check inner convergence
             res = np.max(np.abs(self.p_prime - value_old))
             if res < self.tol:
                 return get_transitioned()
@@ -268,30 +268,30 @@ class CavitySIMPLE(DiffSchemes):
     def solve(self, uworder=1):
         """SIMPLE main loop"""
         for iter in range(self.max_iter):
-            # 保存上一步的速度场
+            # velocity old values
             u_old = np.copy(self.u)
             v_old = np.copy(self.v)
             
-            # 应用边界条件
+            # BDC
             self.apply_boundary_conditions()
             
-            # SIMPLE步骤
-            a_e, a_w = self.solve_momentum_u_star(uworder=uworder)        # 求解u*
-            b_n, b_s = self.solve_momentum_v_star(uworder=uworder)         # 求解v*
-            self.solve_pressure_correction(a_e, a_w, b_n, b_s) # 求解p'
-            self.correct_velocity_pressure(a_e, b_n)# 修正速度和压力
+            # SIMPLE steps
+            a_e, a_w = self.solve_momentum_u_star(uworder=uworder)        # solve u*
+            b_n, b_s = self.solve_momentum_v_star(uworder=uworder)         # solve v*
+            self.solve_pressure_correction(a_e, a_w, b_n, b_s) # solve p'
+            self.correct_velocity_pressure(a_e, b_n)# correct u,v,p
             
-            # 应用边界条件 (确保边界值不变)
+            # apply boundary conditions
             self.apply_boundary_conditions()
             
-            # 计算连续性误差 (质量守恒)
+            # mass conservation check
             mass_error = np.sum(np.abs(
                 (self.u[:-1, 1:-1] - self.u[1:, 1:-1]) * self.dy +
                 (self.v[1:-1, :-1] - self.v[1:-1, 1:]) * self.dx
             ))
             mass_error /= (self.nx * self.ny)
             
-            # 检查收敛性
+            # convergence check
             u_res = np.max(np.abs(self.u - u_old))
             v_res = np.max(np.abs(self.v - v_old))
             
@@ -303,7 +303,7 @@ class CavitySIMPLE(DiffSchemes):
                 break
 
     def get_center_velocity(self):
-        """获取网格中心的速度场"""
+        """velocity at cell centers"""
         # u在x方向中心，y方向需要平均
         u_center = np.zeros((self.nx, self.ny))
         for i in range(self.nx):
@@ -319,7 +319,7 @@ class CavitySIMPLE(DiffSchemes):
         return u_center, v_center, self.p
 
     def calculate_streamfunction(self):
-        """计算流函数"""
+        """compute stream function"""
         psi = np.zeros((self.nx, self.ny))
         
         # 从底部开始积分

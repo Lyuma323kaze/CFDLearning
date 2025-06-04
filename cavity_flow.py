@@ -16,7 +16,7 @@ U_top = 1.0
 alpha_u = 1     # velocity relaxation factor
 alpha_p = 0.6   # pressure relaxation factor
 max_iter = 800
-tol = 1e-6
+tol = 1e-5
 
 # 初始化求解器
 cavity = CavitySIMPLE(

@@ -3,20 +3,20 @@ import matplotlib.pyplot as plt
 from vorStream import VorticityStreamPoiseuille
 
 # 参数设置
-Lx, Ly = 50.0, 1.0       # 流域尺寸
-nx, ny = 300, 200           # 网格数量
-dx, dy = Lx/(nx-1), Ly/(ny-1)
-cfl = 0.05
+Lx, Ly = 100.0, 1.0       # 流域尺寸
+nx, ny = 1000, 150           # 网格数量
+x = np.linspace(0, Lx, nx, endpoint=True)
+y = np.linspace(0, Ly, ny, endpoint=True)
+dx = x[1] - x[0]
+dy = y[1] - y[0]
+cfl = 0.005
 dt = min(cfl * dx, cfl * dy)                # 时间步长
-nu = 0.1                  # 运动粘度
+nu = 1                    # 运动粘度
 U0 = 1.0                  # 中心线速度
 H = Ly                    # 管道高度
-max_iter = 100000
-tol = 1e-5
+max_iter = 15000
+tol = 1e-6
 
-# 创建坐标网格
-x = np.linspace(0, Lx, nx)
-y = np.linspace(0, Ly, ny)
 t = np.arange(0, 10, dt)   # 时间数组
 
 # 创建求解器实例

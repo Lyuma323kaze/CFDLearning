@@ -36,7 +36,8 @@ class VorticityStreamPoiseuille(DiffSchemes):
         
         # uniform inlet and initial condition
         self.u = self.U0 * np.ones((nx, ny))  # initial value
-        self.psi = np.cumsum(self.u, axis=0) * self.dy  # integrate for initial stream function
+        self.u[:,0]= 0
+        self.psi = np.cumsum(self.u, axis=1) * self.dy # * (ny-1) / ny  # integrate for initial stream function
         
     def set_boundary_conditions(self):
         """BDC for 2D Poiseuille flow"""
@@ -50,10 +51,10 @@ class VorticityStreamPoiseuille(DiffSchemes):
         self.v[:, -1] = 0  
         
         self.vorticity[:, 0] = 2 * self.psi[:, 1] / self.dy**2  
-        self.vorticity[:, -1] = 2 * self.psi[:, -2] / self.dy**2  
+        self.vorticity[:, -1] = 2 * (self.psi[:, -2] - self.psi[:, -1]) / self.dy**2  
         # inlet
         self.vorticity[0, 1:-1] = 2 * (self.psi[1, 1:-1] - self.psi[0, 1:-1]) / self.dx**2 +\
-                                (self.psi[0, 2:] - 2 * self.psi[0, 1:-1] + self.psi[0, :-2]) / self.dx**2     
+                                (self.psi[0, 2:] - 2 * self.psi[0, 1:-1] + self.psi[0, :-2]) / self.dy**2     
 
         # outlet (fully developed flow)
         self.vorticity[-1, :] = self.vorticity[-2, :]  
@@ -62,8 +63,8 @@ class VorticityStreamPoiseuille(DiffSchemes):
         # update u,v values for solving vorticity
         self.u[1:-1, 1:-1] = (self.psi[1:-1, 2:] - self.psi[1:-1, :-2]) / (2 * self.dy)
         self.v[1:-1, 1:-1] = -(self.psi[2:, 1:-1] - self.psi[:-2, 1:-1]) / (2 * self.dx)
-        self.u[-1] = self.u[-2]  # outlet condition
-        self.v[-1] = self.v[-2]
+        self.u[-1, 1:-1] = self.u[-2, 1:-1]  # outlet condition
+        self.v[-1, 1:-1] = self.v[-2, 1:-1]
 
     def solve(self, max_iter=10000, tol=1e-6):
         """steady vorStrm solution"""
@@ -81,7 +82,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
             
             # check convergency
             diff = np.max(np.abs(self.psi - psi_old))
-            if iter % 500 == 0:
+            if iter % 100 == 0:
                 print(f"Iter {iter}: diff={diff:.2e}")
             
             if diff < tol:
@@ -90,7 +91,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
         else:
             print("Reached maximum iterations")
 
-    def solve_vorticity_transport(self, alpha_vorticity=0.5):
+    def solve_vorticity_transport(self, alpha_vorticity=0.1):
         """solve vorticity transport equation (FTCS)"""
         new_vort = np.copy(self.vorticity)
         
@@ -109,7 +110,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
         new_vort[1:-1,1:-1] = self.vorticity[1:-1, 1:-1] + alpha_vorticity * omega_change
         self.vorticity[1:-1, 1:-1] = new_vort[1:-1, 1:-1]
 
-    def solve_psi_poisson(self, max_iter=100, tol=1e-4, alpha_psi=0.5):
+    def solve_psi_poisson(self, max_iter=1000, tol=1e-4, alpha_psi=0.1):
         """solve Poisson equation for stream function"""
         for _ in range(max_iter):
             psi_old = self.psi.copy()

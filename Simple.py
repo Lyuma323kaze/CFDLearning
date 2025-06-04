@@ -27,10 +27,13 @@ class CavitySIMPLE(DiffSchemes):
         
         # u mesh
         self.u = 0 * np.ones((self.nx+1, self.ny+2))
-        self.u[:, 1:-1] = 1 - (2 * self.y - 1) ** 2
+        self.u[:, 1:-1] = 0.1 * (U_top * (2 * self.y[np.newaxis, :] - 1))
+        print(self.u)
         
         # v mesh
         self.v = np.zeros((self.nx+2, self.ny+1))
+        self.v[1:-1, :] = 0.1 * U_top * (1 - 2 * self.x[:, np.newaxis])
+        print(self.v)
         
         # modification variables
         self.u_star = np.copy(self.u)

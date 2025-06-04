@@ -26,10 +26,10 @@ class CavitySIMPLE(DiffSchemes):
         self.p = np.zeros((self.nx, self.ny))
         
         # u mesh
-        self.u = np.zeros((self.nx+1, self.ny+2))
+        self.u = 1 * np.ones((self.nx+1, self.ny+2))
         
         # v mesh
-        self.v = np.zeros((self.nx+2, self.ny+1))
+        self.v = 0.3 * np.zeros((self.nx+2, self.ny+1))
         
         # modification variables
         self.u_star = np.copy(self.u)
@@ -88,7 +88,7 @@ class CavitySIMPLE(DiffSchemes):
         self.v_star[-1, :] = -self.v_star[-2, :]  # v=0 by virtual node
         # self.v_star[-1, :] = 0.0
 
-    def solve_momentum_u_star(self, uworder=1, iter_u=20, alpha_inner=0.3):
+    def solve_momentum_u_star(self, uworder=1, iter_u=40, alpha_inner=0.3):
         """solve u-momentum equation"""
         self.u_star = np.copy(self.u)  # initialize u_star
         for _ in range(iter_u):
@@ -153,7 +153,7 @@ class CavitySIMPLE(DiffSchemes):
         # nx,ny
         return a_e, a_w
 
-    def solve_momentum_v_star(self, uworder=1, iter_v=20, alpha_inner=0.3):
+    def solve_momentum_v_star(self, uworder=1, iter_v=40, alpha_inner=0.3):
         """solve momentum equation"""
         for _ in range(iter_v):
             # upwind coefficients
@@ -211,7 +211,7 @@ class CavitySIMPLE(DiffSchemes):
         # nx,ny
         return a_n, a_s
     
-    def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=20):
+    def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=40):
         """solve pressure correction equation"""
         def get_transitioned():
             p_virtual_r = np.concatenate((self.p_prime[:, 1:], self.p_prime[:, -1][:,np.newaxis]), axis=1)
@@ -289,7 +289,7 @@ class CavitySIMPLE(DiffSchemes):
                 (self.u[:-1, 1:-1] - self.u[1:, 1:-1]) * self.dy +
                 (self.v[1:-1, :-1] - self.v[1:-1, 1:]) * self.dx
             ))
-            mass_error /= (self.nx * self.ny)
+            mass_error /= (self.dx * self.dy)
             
             # convergence check
             u_res = np.max(np.abs(self.u - u_old))
@@ -306,16 +306,11 @@ class CavitySIMPLE(DiffSchemes):
         """velocity at cell centers"""
         # u在x方向中心，y方向需要平均
         u_center = np.zeros((self.nx, self.ny))
-        for i in range(self.nx):
-            for j in range(self.ny):
-                u_center[i, j] = 0.5 * (self.u[i, j+1] + self.u[i+1, j+1])
-        
+        u_center = 0.5 * (self.u[:-1, 1:-1] + self.u[1:, 1:-1])
         # v在y方向中心，x方向需要平均
         v_center = np.zeros((self.nx, self.ny))
-        for i in range(self.nx):
-            for j in range(self.ny):
-                v_center[i, j] = 0.5 * (self.v[i+1, j] + self.v[i+1, j+1])
-        
+        v_center = 0.5 * (self.v[1:-1, :-1] + self.v[1:-1, 1:])
+
         return u_center, v_center, self.p
 
     def calculate_streamfunction(self):

@@ -14,7 +14,7 @@ dt = cfl * min(dx, dy)  # time step
 Re = 400  # Reynolds number 
 U_top = 1.0
 alpha_u = 1     # velocity relaxation factor
-alpha_p = 0.6   # pressure relaxation factor
+alpha_p = 0.3   # pressure relaxation factor
 max_iter = 800
 tol = 1e-5
 
@@ -40,7 +40,6 @@ cavity.solve()
 
 # get results
 u, v, p = cavity.get_center_velocity()
-psi = cavity.calculate_streamfunction()
 
 # print(cavity.u)
 
@@ -54,6 +53,7 @@ plt.figure(figsize=(12, 5))
 # 流线图 - 左子图
 plt.subplot(1, 2, 1)
 # 绘制流线图
+# u.shape = (nx,ny), v.shape = (nx,ny)
 plt.streamplot(X.T, Y.T, u.T, v.T, 
                density=1.5, color='black', linewidth=1, arrowsize=1)
 plt.title('Streamlines')

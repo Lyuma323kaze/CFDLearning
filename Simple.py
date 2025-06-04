@@ -126,13 +126,13 @@ class CavitySIMPLE(DiffSchemes):
                 gamma_uy[:,-2] = 0.5 * alpha_uyp[:,-2] * (self.u[1:,-2] - self.u[1:,-3])
                 
             # discretization coefficients (nx-1,ny for n,s; nx,ny for e,w, nx-1,ny for p,hat)
-            a_p = (self.dx * self.dy / self.dt) +\
-                    self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) +\
+            a_p = (self.dx * self.dy / self.dt) -\
+                    self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) -\
                     self.dx * (alpha_uyp[:-1,1:] - alpha_uym[:-1,:-1] + (2 / (self.Re * self.dy)))
-            a_w = self.dy * (alpha_uxp[:-1] + 1 / (self.Re * self.dx))
-            a_e = self.dy * (-alpha_uxm[1:] + 1 / (self.Re * self.dx))
-            a_s = self.dx * (alpha_uyp[:-1,:-1] + 1 / (self.Re * self.dy))
-            a_n = self.dx * (-alpha_uym[:-1,1:] + 1 / (self.Re * self.dy))
+            a_w = -self.dy * (alpha_uxp[:-1] + 1 / (self.Re * self.dx))
+            a_e = -self.dy * (-alpha_uxm[1:] + 1 / (self.Re * self.dx))
+            a_s = -self.dx * (alpha_uyp[:-1,:-1] + 1 / (self.Re * self.dy))
+            a_n = -self.dx * (-alpha_uym[:-1,1:] + 1 / (self.Re * self.dy))
             a_hat = self.dy * (gamma_ux[1:-1] - gamma_ux[:-2]) +\
                     self.dx * (gamma_uy[:-1,1:] - gamma_uy[:-1,:-1])
             
@@ -187,13 +187,13 @@ class CavitySIMPLE(DiffSchemes):
                 gamma_vx[-2] = 0.5 * alpha_vxp[-2] * (self.v[-2,1:] - self.v[-3,1:])
                 
             # discretization coefficients (nx,ny-1 for w,e; nx,ny for n,s, nx,ny-1 for p,hat)
-            a_p = (self.dy * self.dx / self.dt) +\
-                    self.dx * (alpha_vyp[:,1:-1] - alpha_vym[:,:-2] + (2 / (self.Re * self.dy))) +\
+            a_p = (self.dy * self.dx / self.dt) -\
+                    self.dx * (alpha_vyp[:,1:-1] - alpha_vym[:,:-2] + (2 / (self.Re * self.dy))) -\
                     self.dy * (alpha_vxp[1:,:-1] - alpha_vxm[:-1,:-1] + (2 / (self.Re * self.dx)))
-            a_s = self.dx * (alpha_vyp[:,:-1] + 1 / (self.Re * self.dy))
-            a_n = self.dx * (-alpha_vym[:,1:] + 1 / (self.Re * self.dy))
-            a_w = self.dy * (alpha_vxp[:-1,:-1] + 1 / (self.Re * self.dx))
-            a_e = self.dy * (-alpha_vxm[1:,:-1] + 1 / (self.Re * self.dx))
+            a_s = -self.dx * (alpha_vyp[:,:-1] + 1 / (self.Re * self.dy))
+            a_n = -self.dx * (-alpha_vym[:,1:] + 1 / (self.Re * self.dy))
+            a_w = -self.dy * (alpha_vxp[:-1,:-1] + 1 / (self.Re * self.dx))
+            a_e = -self.dy * (-alpha_vxm[1:,:-1] + 1 / (self.Re * self.dx))
             a_hat = self.dx * (gamma_vy[:,1:-1] - gamma_vy[:,:-2]) +\
                     self.dy * (gamma_vx[1:,:-1] - gamma_vx[:-1,:-1])
             

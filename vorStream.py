@@ -81,7 +81,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
             
             # check convergency
             diff = np.max(np.abs(self.psi - psi_old))
-            if iter % 100 == 0:
+            if iter % 500 == 0:
                 print(f"Iter {iter}: diff={diff:.2e}")
             
             if diff < tol:

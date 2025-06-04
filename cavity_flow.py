@@ -15,7 +15,7 @@ Re = 400  # Reynolds number
 U_top = 1.0
 alpha_u = 1     # velocity relaxation factor
 alpha_p = 0.6   # pressure relaxation factor
-max_iter = 2000
+max_iter = 800
 tol = 1e-6
 
 # 初始化求解器

@@ -26,10 +26,11 @@ class CavitySIMPLE(DiffSchemes):
         self.p = np.zeros((self.nx, self.ny))
         
         # u mesh
-        self.u = 1 * np.ones((self.nx+1, self.ny+2))
+        self.u = 0 * np.ones((self.nx+1, self.ny+2))
+        self.u[:, 1:-1] = 1 - (2 * self.y - 1) ** 2
         
         # v mesh
-        self.v = 0.3 * np.zeros((self.nx+2, self.ny+1))
+        self.v = np.zeros((self.nx+2, self.ny+1))
         
         # modification variables
         self.u_star = np.copy(self.u)
@@ -88,7 +89,7 @@ class CavitySIMPLE(DiffSchemes):
         self.v_star[-1, :] = -self.v_star[-2, :]  # v=0 by virtual node
         # self.v_star[-1, :] = 0.0
 
-    def solve_momentum_u_star(self, uworder=1, iter_u=40, alpha_inner=0.3):
+    def solve_momentum_u_star(self, uworder=1, iter_u=40, alpha_inner=0.6):
         """solve u-momentum equation"""
         self.u_star = np.copy(self.u)  # initialize u_star
         for _ in range(iter_u):
@@ -153,7 +154,7 @@ class CavitySIMPLE(DiffSchemes):
         # nx,ny
         return a_e, a_w
 
-    def solve_momentum_v_star(self, uworder=1, iter_v=40, alpha_inner=0.3):
+    def solve_momentum_v_star(self, uworder=1, iter_v=40, alpha_inner=0.6):
         """solve momentum equation"""
         for _ in range(iter_v):
             # upwind coefficients
@@ -313,6 +314,7 @@ class CavitySIMPLE(DiffSchemes):
 
         return u_center, v_center, self.p
 
+    # TODO: fix annotation
     def calculate_streamfunction(self):
         """compute stream function"""
         psi = np.zeros((self.nx, self.ny))

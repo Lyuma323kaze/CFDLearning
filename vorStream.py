@@ -84,13 +84,16 @@ class VorticityStreamPoiseuille(DiffSchemes):
             
             # 检查收敛性
             diff = np.max(np.abs(self.psi - psi_old))
+            if iter % 100 == 0:
+                print(f"Iter {iter}: diff={diff:.2e}")
+            
             if diff < tol:
                 print(f"Converged after {iter} iterations")
                 break
         else:
             print("Reached maximum iterations")
 
-    def solve_vorticity_transport(self):
+    def solve_vorticity_transport(self, alpha_vorticity=0.5):
         """solve vorticity transport equation (FTCS)"""
         new_vort = np.copy(self.vorticity)
         
@@ -106,10 +109,10 @@ class VorticityStreamPoiseuille(DiffSchemes):
                         (self.dt / self.dy) * (self.v[1:-1, 1:-1] *
                                                (self.vorticity[1:-1, 2:] - self.vorticity[1:-1, :-2]) / 2)
         # update values for inner points
-        new_vort[1:-1,1:-1] = self.vorticity[1:-1, 1:-1] + omega_change
+        new_vort[1:-1,1:-1] = self.vorticity[1:-1, 1:-1] + alpha_vorticity * omega_change
         self.vorticity[1:-1, 1:-1] = new_vort[1:-1, 1:-1]
 
-    def solve_psi_poisson(self, max_iter=100, tol=1e-4):
+    def solve_psi_poisson(self, max_iter=100, tol=1e-4, alpha_psi=0.5):
         """solve Poisson equation for stream function"""
         for _ in range(max_iter):
             psi_old = self.psi.copy()
@@ -124,7 +127,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
             psi_new[-2, 1:-1] = 0.5 * (-self.dy ** 2 * self.vorticity[-2, 1:-1] + 
                 self.psi[-2, 2:] + self.psi[-2, :-2])
             
-            self.psi[1:-1, 1:-1] = psi_new[1:-1, 1:-1]
+            self.psi[1:-1, 1:-1] = alpha_psi * psi_new[1:-1, 1:-1] + (1 - alpha_psi) * self.psi[1:-1, 1:-1]
             
             # 检查收敛
             if np.max(np.abs(self.psi - psi_old)) < tol:

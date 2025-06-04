@@ -10,7 +10,7 @@ dx = x[1] - x[0]
 dy = y[1] - y[0]
 cfl = 0.005
 dt = cfl * min(dx, dy)  # 时间步长
-Re = 400  # 雷诺数
+Re = 1000  # 雷诺数
 U_top = 1.0
 
 # 初始化求解器
@@ -27,7 +27,7 @@ cavity = CavitySIMPLE(
     alpha_u=1,  # 速度欠松弛因子
     alpha_p=0.8,  # 压力欠松弛因子
     max_iter=500,
-    tol=1e-5
+    tol=1e-7
 )
 
 # 执行计算

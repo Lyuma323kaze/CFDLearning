@@ -4,13 +4,15 @@ from vorStream import VorticityStreamPoiseuille
 
 # 参数设置
 Lx, Ly = 10.0, 1.0       # 流域尺寸
-nx, ny = 100, 100           # 网格数量
+nx, ny = 100, 200           # 网格数量
 dx, dy = Lx/(nx-1), Ly/(ny-1)
 cfl = 0.05
 dt = min(cfl * dx, cfl * dy)                # 时间步长
 nu = 0.1                  # 运动粘度
 U0 = 1.0                  # 中心线速度
 H = Ly                    # 管道高度
+max_iter = 100000
+tol = 1e-5
 
 # 创建坐标网格
 x = np.linspace(0, Lx, nx)
@@ -32,7 +34,7 @@ solver = VorticityStreamPoiseuille(
 )
 
 # 求解
-solver.solve(max_iter=1000, tol=1e-5)
+solver.solve(max_iter=max_iter, tol=tol)
 
 # 获取速度场
 u, v = solver.get_velocity_field()

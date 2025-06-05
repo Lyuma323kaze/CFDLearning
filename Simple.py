@@ -43,6 +43,8 @@ class CavitySIMPLE(DiffSchemes):
         # convergency
         self.max_iter = max_iter
         self.tol = tol
+        self.chat = 1.
+        self.res = 1.
 
         # BDC
         self.apply_boundary_conditions()
@@ -219,7 +221,7 @@ class CavitySIMPLE(DiffSchemes):
         # nx,ny
         return a_n, a_s
     
-    def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=100):
+    def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=500):
         """solve pressure correction equation"""
         def get_transitioned():
             p_virtual_r = np.concatenate((self.p_prime[:, 1:], self.p_prime[:, -1][:,np.newaxis]), axis=1)
@@ -247,71 +249,116 @@ class CavitySIMPLE(DiffSchemes):
             self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
             self.dx * (self.v_star[1:-1,1:] - self.v_star[1:-1,:-1])
         )
+        self.chat = np.max(np.abs(c_hat))
         for _ in range(iter_p):
-            
             value_old = np.copy(self.p_prime)
-            # self.p_prime[1:-1,1:-1] = (1/(c_p[1:-1,1:-1] + 1e-8)) * (
-            #     c_e[1:-1,1:-1] * p_r[1:,1:-1] +
-            #     c_w[1:-1,1:-1] * p_l[:-1,1:-1] + 
-            #     c_n[1:-1,1:-1] * p_u[1:-1,1:] +
-            #     c_s[1:-1,1:-1] * p_d[1:-1,:-1] +
-            #     c_hat[1:-1,1:-1]
+            
+            # jacobian p_prime update with [0,0] the reference
+            # self.p_prime[1:,1:] = (1/(c_p[1:,1:] + 1e-8)) * (
+            #     c_e[1:,1:] * p_virtual_r[1:,1:] +
+            #     c_w[1:,1:] * p_virtual_l[1:,1:] +
+            #     c_n[1:,1:] * p_virtual_u[1:,1:] +
+            #     c_s[1:,1:] * p_virtual_d[1:,1:] +
+            #     c_hat[1:,1:]
             # )
-            # self.p_prime[1:-1,0] = (1/(c_p[1:-1,0] + 1e-8)) * (
-            #     c_e[1:-1,0] * p_r[1:,0] +
-            #     c_w[1:-1,0] * p_l[:-1,0] + 
-            #     c_n[1:-1,0] * p_u[1:-1,0] +
-            #     c_hat[1:-1,0]
+            # self.p_prime[0,2:] = (1/(c_p[0,2:] + 1e-8)) * (
+            #     c_e[0,2:] * p_virtual_r[0,2:] +
+            #     c_w[0,2:] * p_virtual_l[0,2:] +
+            #     c_n[0,2:] * p_virtual_u[0,2:] +
+            #     c_s[0,2:] * p_virtual_d[0,2:] +
+            #     c_hat[0,2:]
             # )
-            # self.p_prime[1:-1,-1] = (1/(c_p[1:-1,-1] + 1e-8)) * (
-            #     c_e[1:-1,-1] * p_r[1:,-1] +
-            #     c_w[1:-1,-1] * p_l[:-1,-1] + 
-            #     c_s[1:-1,-1] * p_d[1:-1,-1] +
-            #     c_hat[1:-1,-1]
+            # self.p_prime[2:,0] = (1/(c_p[0,2:] + 1e-8)) * (
+            #     c_e[2:,0] * p_virtual_r[2:,0] +
+            #     c_w[2:,0] * p_virtual_l[2:,0] +
+            #     c_n[2:,0] * p_virtual_u[2:,0] +
+            #     c_s[2:,0] * p_virtual_d[2:,0] +
+            #     c_hat[2:,0]
             # )
-            # self.p_prime[0,1:-1] = (1/(c_p[0,1:-1] + 1e-8)) * (
-            #     c_e[0,1:-1] * p_r[0,1:-1] +
-            #     c_n[0,1:-1] * p_u[0,1:] + 
-            #     c_s[0,1:-1] * p_d[0,:-1] +
-            #     c_hat[0,1:-1]
+            # self.p_prime[0,1] = (1/((c_e+c_n)[0,1] + 1e-8)) * (
+            #     c_e[0,1] * p_virtual_r[0,1] +
+            #     c_n[0,1] * p_virtual_u[0,1] +
+            #     c_hat[0,1]
             # )
-            # self.p_prime[-1,1:-1] = (1/(c_p[0,1:-1] + 1e-8)) * (
-            #     c_w[-1,1:-1] * p_l[-1,1:-1] +
-            #     c_n[-1,1:-1] * p_u[-1,1:] + 
-            #     c_s[-1,1:-1] * p_d[-1,:-1] +
-            #     c_hat[-1,1:-1]
+            # self.p_prime[1,0] = (1/((c_e+c_n)[1,0] + 1e-8)) * (
+            #     c_e[1,0] * p_virtual_r[1,0] +
+            #     c_n[1,0] * p_virtual_u[1,0] +
+            #     c_hat[1,0]
             # )
-            # self.p_prime[0,0] = (1/(c_p[0,0] + 1e-8)) * (
-            #     c_e[0,0] * p_r[0,0] +
-            #     c_n[0,0] * p_u[0,0] +
-            #     c_hat[0,0]
-            # )
-            # self.p_prime[0,-1] = (1/(c_p[0,-1] + 1e-8)) * (
-            #     c_e[0,-1] * p_r[0,-1] +
-            #     c_s[0,-1] * p_d[0,-1] +
-            #     c_hat[0,-1]
-            # )
-            # self.p_prime[-1,0] = (1/(c_p[-1,0] + 1e-8)) * (
-            #     c_w[-1,0] * p_l[-1,0] +
-            #     c_n[-1,0] * p_u[-1,0] +
-            #     c_hat[-1,0]
-            # )
-            # self.p_prime[-1,-1] = (1/(c_p[-1,-1] + 1e-8)) * (
-            #     c_w[-1,-1] * p_l[-1,-1] +
-            #     c_s[-1,-1] * p_d[-1,-1] +
-            #     c_hat[-1,-1]
-            # )
-            self.p_prime = (1/(c_p + 1e-8)) * (
-                c_e * p_virtual_r +
-                c_w * p_virtual_l +
-                c_n * p_virtual_u +
-                c_s * p_virtual_d +
-                c_hat
+            
+            
+            # jacobian p_prime update with [100,100] the reference
+            self.p_prime[:,101:] = (1/(c_p[:,101:] + 1e-8)) * (
+                c_e[:,101:] * p_virtual_r[:,101:] +
+                c_w[:,101:] * p_virtual_l[:,101:] +
+                c_n[:,101:] * p_virtual_u[:,101:] +
+                c_s[:,101:] * p_virtual_d[:,101:] +
+                c_hat[:,101:]
             )
+            self.p_prime[:,:100] = (1/(c_p[:,:100] + 1e-8)) * (
+                c_e[:,:100] * p_virtual_r[:,:100] +
+                c_w[:,:100] * p_virtual_l[:,:100] +
+                c_n[:,:100] * p_virtual_u[:,:100] +
+                c_s[:,:100] * p_virtual_d[:,:100] +
+                c_hat[:,:100]
+            )
+            self.p_prime[:100,100] = (1/(c_p[:100,100] + 1e-8)) * (
+                c_e[:100,100] * p_virtual_r[:100,100] +
+                c_w[:100,100] * p_virtual_l[:100,100] +
+                c_n[:100,100] * p_virtual_u[:100,100] +
+                c_s[:100,100] * p_virtual_d[:100,100] +
+                c_hat[:100,100]
+            )
+            self.p_prime[101:,100] = (1/(c_p[101:,100] + 1e-8)) * (
+                c_e[101:,100] * p_virtual_r[101:,100] +
+                c_w[101:,100] * p_virtual_l[101:,100] +
+                c_n[101:,100] * p_virtual_u[101:,100] +
+                c_s[101:,100] * p_virtual_d[101:,100] +
+                c_hat[101:,100]
+            )
+            self.p_prime[99,100] = (1/((c_w+c_n+c_s)[99,100] + 1e-8)) * (
+                c_w[99,100] * p_virtual_l[99,100] +
+                c_n[99,100] * p_virtual_u[99,100] +
+                c_s[99,100] * p_virtual_d[99,100] +
+                c_hat[99,100]
+            )
+            self.p_prime[101,100] = (1/((c_e+c_n+c_s)[101,100] + 1e-8)) * (
+                c_e[101,100] * p_virtual_r[101,100] +
+                c_n[101,100] * p_virtual_u[101,100] +
+                c_s[101,100] * p_virtual_d[101,100] +
+                c_hat[101,100]
+            )
+            self.p_prime[100,101] = (1/((c_e+c_n+c_w)[100,101] + 1e-8)) * (
+                c_e[100,101] * p_virtual_r[100,101] +
+                c_n[100,101] * p_virtual_u[100,101] +
+                c_w[100,101] * p_virtual_l[100,101] +
+                c_hat[100,101]
+            )
+            self.p_prime[100,101] = (1/((c_e+c_n+c_w)[100,101] + 1e-8)) * (
+                c_e[100,101] * p_virtual_r[100,101] +
+                c_n[100,101] * p_virtual_u[100,101] +
+                c_w[100,101] * p_virtual_l[100,101] +
+                c_hat[100,101]
+            )
+            
+            # linear G-S iteration
+            # TODO: ...
+            
+            # simple jacobian update (same as )
+            # self.p_prime = (1/(c_p + 1e-8)) * (
+            #     c_e * p_virtual_r +
+            #     c_w * p_virtual_l +
+            #     c_n * p_virtual_u +
+            #     c_s * p_virtual_d +
+            #     c_hat
+            # )
 
+            # w,e,u,d with BDC (nx,ny)
+            p_virtual_u, p_virtual_d, p_virtual_l, p_virtual_r = get_transitioned()
             # check inner convergence
             res = np.sum(np.abs(self.p_prime - value_old))
-            if res < self.tol:
+            self.res = res
+            if res < 1e-7:
                 break
         return
     
@@ -360,8 +407,8 @@ class CavitySIMPLE(DiffSchemes):
             v_res = np.max(np.abs(self.v - v_old))
             
             
-            if iter % 10 == 0:
-                print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}")
+            if iter % 200 == 0:
+                print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
             
             if u_res < self.tol and v_res < self.tol and mass_error < 1e-4:
                 print(f"Converged at iteration {iter}")
@@ -375,12 +422,8 @@ class CavitySIMPLE(DiffSchemes):
         # v在y方向中心，x方向需要平均
         v_center = np.zeros((self.nx, self.ny))
         v_center = 0.5 * (self.v[1:-1, :-1] + self.v[1:-1, 1:])
-        print('u_matrix')
-        print(u_center)
         print('self.u')
         print(self.u)
-        print('v_matrix')
-        print(v_center)
-        print('self.v')
-        print(self.v)
+        print('self.p')
+        print(self.p)
         return u_center, v_center, self.p

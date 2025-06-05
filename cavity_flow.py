@@ -11,11 +11,11 @@ dx = x[1] - x[0]
 dy = y[1] - y[0]
 cfl = 0.005
 dt = cfl * min(dx, dy)  # time step
-Re = 400  # Reynolds number 
+Re = 1000  # Reynolds number 
 U_top = 1.0
 alpha_u = 0.3     # velocity relaxation factor
 alpha_p = 0.3   # pressure relaxation factor
-max_iter = 800
+max_iter = 4000
 tol = 1e-5
 
 # 初始化求解器

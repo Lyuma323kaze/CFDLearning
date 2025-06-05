@@ -92,64 +92,66 @@ class CavitySIMPLE(DiffSchemes):
         # self.u_star[:, -1] = self.U_top  # upper x cover by virtual node
         self.v_star[:, -1] = 0.0         # v velocity on the top
 
-    def solve_momentum_u_star(self, uworder=1, iter_u=100, alpha_inner=0.6):
+    def solve_momentum_u_star(self, uworder=1, iter_u=200):
         """solve u-momentum equation"""
         self.u_star = np.copy(self.u)  # initialize u_star
+        
+        # upwind coefficients
+        u_avr_x = np.empty((self.nx+1, self.ny+2))
+        u_avr_x[:-1,:] = (self.u[:-1,:] + self.u[1:,:]) / 2 
+        u_avr_x[-1,:] = 0.5 * self.u[-1,:]  # last row is the right boundary
+        
+        alpha_uxp = np.maximum(u_avr_x, 0)[:,1:-1]     # nx+1, ny
+        alpha_uxm = np.minimum(u_avr_x, 0)[:,1:-1]     # nx+1, ny
+        # print(alpha_uxp.shape, alpha_uxm.shape)
+        
+        v_avr_x = (self.v[1:-1,:] + self.v[2:,:]) / 2
+        
+        alpha_uyp = np.maximum(v_avr_x, 0)     # nx, ny+1
+        alpha_uym = np.minimum(v_avr_x, 0)     # nx, ny+1
+        # print(alpha_uyp.shape, alpha_uym.shape)
+        gamma_ux = np.zeros_like(alpha_uxp)  # nx+1, ny
+        gamma_uy = np.zeros_like(alpha_uyp)  # nx, ny+1
+        if uworder == 2:
+            # TODO: fix the expression
+            gamma_ux[1:-1] = 0.5 * (alpha_uxp[1:-1] * (self.u[1:-2,1:-1] - self.u[:-3,1:-1]) +
+                                    alpha_uxm * (self.u[2:-1,1:-1] - self.u[3:,1:-1]))
+            gamma_ux[0] = 0.5 * alpha_uxm[0] * (self.u[1,1:-1] - self.u[2,1:-1])
+            gamma_ux[-1] = 0.5 * alpha_uxp[-1] * (self.u[-2,1:-1] - self.u[-3,1:-1])
+            
+            gamma_uy[:,1:-2] = 0.5 * (alpha_uyp[:,1:-2] * (self.u[1:,1:-2] - self.u[1:,:-3]) +
+                                    alpha_uym * (self.u[1:,2:-1] - self.u[1:,3:]))
+            gamma_uy[:,0] = 0.5 * alpha_uym[:,0] * (self.u[1:,1] - self.u[1:,2])
+            gamma_uy[:,-1] = 0.5 * alpha_uyp[:,-1] * (self.u[1:,-1] - self.u[1:,-2])
+            gamma_uy[:,-2] = 0.5 * alpha_uyp[:,-2] * (self.u[1:,-2] - self.u[1:,-3])
+            
+        # discretization coefficients (nx-1,ny for n,s; nx,ny for e,w, nx-1,ny for p,hat)
+        a_p = (self.dx * self.dy / self.dt) +\
+                self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) +\
+                self.dx * (alpha_uyp[:-1,1:] - alpha_uym[:-1,:-1] + (2 / (self.Re * self.dy)))
+        a_w = self.dy * (alpha_uxp[:-1] + 1 / (self.Re * self.dx))
+        a_e = self.dy * (-alpha_uxm[1:] + 1 / (self.Re * self.dx))
+        a_s = self.dx * (alpha_uyp[:-1,:-1] + 1 / (self.Re * self.dy))
+        a_n = self.dx * (-alpha_uym[:-1,1:] + 1 / (self.Re * self.dy))
+        a_hat = self.dy * (gamma_ux[1:-1] - gamma_ux[:-2]) +\
+                self.dx * (gamma_uy[:-1,1:] - gamma_uy[:-1,:-1])
+        if np.min(a_n / a_p) < 0:
+            print(np.min(a_n / a_p))
+            raise ValueError('positive coefficient rule was ruined')
+        # pressure gradient(nx-1,ny)
+        dP = -(self.p[1:] - self.p[:-1]) * self.dy
+            
         for _ in range(iter_u):
-            # upwind coefficients
-            u_avr = np.empty((self.nx+1, self.ny+2))
-            u_avr[:-1,:] = (self.u[:-1,:] + self.u[1:,:]) / 2 
-            u_avr[-1,:] = 0.5 * self.u[-1,:]  # last row is the right boundary
-            
-            alpha_uxp = np.maximum(u_avr, 0)[:,1:-1]     # nx+1, ny
-            alpha_uxm = np.minimum(u_avr, 0)[:,1:-1]     # nx+1, ny
-            # print(alpha_uxp.shape, alpha_uxm.shape)
-            
-            v_avr = (self.v[1:-1,:] + self.v[2:,:]) / 2
-            
-            alpha_uyp = np.maximum(v_avr, 0)     # nx, ny+1
-            alpha_uym = np.minimum(v_avr, 0)     # nx, ny+1
-            # print(alpha_uyp.shape, alpha_uym.shape)
-            gamma_ux = np.zeros_like(alpha_uxp)  # nx+1, ny
-            gamma_uy = np.zeros_like(alpha_uyp)  # nx, ny+1
-            if uworder == 2:
-                # TODO: fix the expression
-                gamma_ux[1:-1] = 0.5 * (alpha_uxp[1:-1] * (self.u[1:-2,1:-1] - self.u[:-3,1:-1]) +
-                                        alpha_uxm * (self.u[2:-1,1:-1] - self.u[3:,1:-1]))
-                gamma_ux[0] = 0.5 * alpha_uxm[0] * (self.u[1,1:-1] - self.u[2,1:-1])
-                gamma_ux[-1] = 0.5 * alpha_uxp[-1] * (self.u[-2,1:-1] - self.u[-3,1:-1])
-                
-                gamma_uy[:,1:-2] = 0.5 * (alpha_uyp[:,1:-2] * (self.u[1:,1:-2] - self.u[1:,:-3]) +
-                                        alpha_uym * (self.u[1:,2:-1] - self.u[1:,3:]))
-                gamma_uy[:,0] = 0.5 * alpha_uym[:,0] * (self.u[1:,1] - self.u[1:,2])
-                gamma_uy[:,-1] = 0.5 * alpha_uyp[:,-1] * (self.u[1:,-1] - self.u[1:,-2])
-                gamma_uy[:,-2] = 0.5 * alpha_uyp[:,-2] * (self.u[1:,-2] - self.u[1:,-3])
-                
-            # discretization coefficients (nx-1,ny for n,s; nx,ny for e,w, nx-1,ny for p,hat)
-            a_p = (self.dx * self.dy / self.dt) -\
-                    self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) -\
-                    self.dx * (alpha_uyp[:-1,1:] - alpha_uym[:-1,:-1] + (2 / (self.Re * self.dy)))
-            a_w = -self.dy * (alpha_uxp[:-1] + 1 / (self.Re * self.dx))
-            a_e = -self.dy * (-alpha_uxm[1:] + 1 / (self.Re * self.dx))
-            a_s = -self.dx * (alpha_uyp[:-1,:-1] + 1 / (self.Re * self.dy))
-            a_n = -self.dx * (-alpha_uym[:-1,1:] + 1 / (self.Re * self.dy))
-            a_hat = self.dy * (gamma_ux[1:-1] - gamma_ux[:-2]) +\
-                    self.dx * (gamma_uy[:-1,1:] - gamma_uy[:-1,:-1])
-            
-            # pressure gradient(nx-1,ny)
-            dP = -(self.p[1:] - self.p[:-1]) * self.dy
-            
             # update
             value_old = np.copy(self.u_star[1:-1,1:-1])
-            self.u_star[1:-1,1:-1] =(alpha_inner * (
+            self.u_star[1:-1,1:-1] =(self.alpha_u * (
                                     a_e[:-1] * self.u_star[2:,1:-1] + 
                                     a_w[:-1] * self.u_star[:-2,1:-1] +
                                     a_n * self.u_star[1:-1,2:] +
                                     a_s * self.u_star[1:-1,:-2] +
                                     dP + a_hat
-                                    ) + (1 - alpha_inner) * self.dx * self.dy / self.dt * self.u_star[1:-1,1:-1]
-                                        ) / (a_p + 1e-8)
-
+                                    ) + (1 - self.alpha_u) * self.dx * self.dy / self.dt * value_old
+                                ) / (a_p + 1e-8)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
             diff = np.max(np.abs(self.u_star[1:-1,1:-1] - value_old))
             if diff < self.tol:
@@ -157,57 +159,59 @@ class CavitySIMPLE(DiffSchemes):
         # nx,ny
         return a_e, a_w
 
-    def solve_momentum_v_star(self, uworder=1, iter_v=100, alpha_inner=0.6):
+    def solve_momentum_v_star(self, uworder=1, iter_v=200):
         """solve momentum equation"""
+        self.v_star = np.copy(self.v)  # initialize u_star
+        # upwind coefficients
+        v_avr_y = np.empty((self.nx+2, self.ny+1))
+        v_avr_y[:,:-1] = (self.v[:,:-1] + self.v[:,1:]) / 2 
+        v_avr_y[:,-1] = 0.5 * self.v[:,-1]  # last column is the right boundary
+        
+        alpha_vyp = np.maximum(v_avr_y, 0)[1:-1,:]     # nx, ny+1
+        alpha_vym = np.minimum(v_avr_y, 0)[1:-1,:]     # nx, ny+1
+        
+        u_avr_y = (self.u[:,1:-1] + self.u[:,2:]) / 2
+        
+        alpha_vxp = np.maximum(u_avr_y, 0)     # nx+1, ny
+        alpha_vxm = np.minimum(u_avr_y, 0)     # nx+1, ny
+        gamma_vy = np.zeros_like(alpha_vyp)  # nx, ny+1
+        gamma_vx = np.zeros_like(alpha_vxp)  # nx+1, ny
+        if uworder == 2:
+            gamma_vy[:,1:-1] = 0.5 * (alpha_vyp[:,1:-1] * (self.v[1:-1,1:-2] - self.v[1:-1,:-3]) +
+                                    alpha_vym * (self.v[1:-1,2:-1] - self.v[1:-1,3]))
+            gamma_vy[:,0] = 0.5 * alpha_vym[:,0] * (self.v[1:-1,1] - self.v[1:-1,2])
+            gamma_vy[:,-1] = 0.5 * alpha_vyp[:,-1] * (self.v[1:-1,-2] - self.v[-1:-1,-3])
+            
+            gamma_vx[1:-2] = 0.5 * (alpha_vxp[1:-2,:] * (self.v[1:-2,1:] - self.v[:-3,1:]) +
+                                    alpha_vxm * (self.v[2:-1,1:] - self.v[3:,1:]))
+            gamma_vx[0] = 0.5 * alpha_vxm[0] * (self.v[1:,1] - self.v[2:,1])
+            gamma_vx[-1] = 0.5 * alpha_vxp[-1] * (self.v[-1,1:] - self.v[-2,1:])
+            gamma_vx[-2] = 0.5 * alpha_vxp[-2] * (self.v[-2,1:] - self.v[-3,1:])
+            
+        # discretization coefficients (nx,ny-1 for w,e; nx,ny for n,s, nx,ny-1 for p,hat)
+        a_p = (self.dy * self.dx / self.dt) +\
+                self.dx * (alpha_vyp[:,1:-1] - alpha_vym[:,:-2] + (2 / (self.Re * self.dy))) +\
+                self.dy * (alpha_vxp[1:,:-1] - alpha_vxm[:-1,:-1] + (2 / (self.Re * self.dx)))
+        a_s = self.dx * (alpha_vyp[:,:-1] + 1 / (self.Re * self.dy))
+        a_n = self.dx * (-alpha_vym[:,1:] + 1 / (self.Re * self.dy))
+        a_w = self.dy * (alpha_vxp[:-1,:-1] + 1 / (self.Re * self.dx))
+        a_e = self.dy * (-alpha_vxm[1:,:-1] + 1 / (self.Re * self.dx))
+        a_hat = self.dx * (gamma_vy[:,1:-1] - gamma_vy[:,:-2]) +\
+                self.dy * (gamma_vx[1:,:-1] - gamma_vx[:-1,:-1])
+        
+        # pressure gradient(nx,ny-1)
+        dP = -(self.p[:,1:] - self.p[:,:-1]) * self.dx
+            
         for _ in range(iter_v):
-            # upwind coefficients
-            v_avr = np.empty((self.nx+2, self.ny+1))
-            v_avr[:,:-1] = (self.v[:,:-1] + self.v[:,1:]) / 2 
-            v_avr[:,-1] = 0.5 * self.v[:,-1]  # last column is the right boundary
-            
-            alpha_vyp = np.maximum(v_avr, 0)[1:-1,:]     # nx, ny+1
-            alpha_vym = np.minimum(v_avr, 0)[1:-1,:]     # nx, ny+1
-            
-            u_avr = (self.u[:,1:-1] + self.u[:,2:]) / 2
-            
-            alpha_vxp = np.maximum(u_avr, 0)     # nx+1, ny
-            alpha_vxm = np.minimum(u_avr, 0)     # nx+1, ny
-            gamma_vy = np.zeros_like(alpha_vyp)  # nx, ny+1
-            gamma_vx = np.zeros_like(alpha_vxp)  # nx+1, ny
-            if uworder == 2:
-                gamma_vy[:,1:-1] = 0.5 * (alpha_vyp[:,1:-1] * (self.v[1:-1,1:-2] - self.v[1:-1,:-3]) +
-                                        alpha_vym * (self.v[1:-1,2:-1] - self.v[1:-1,3]))
-                gamma_vy[:,0] = 0.5 * alpha_vym[:,0] * (self.v[1:-1,1] - self.v[1:-1,2])
-                gamma_vy[:,-1] = 0.5 * alpha_vyp[:,-1] * (self.v[1:-1,-2] - self.v[-1:-1,-3])
-                
-                gamma_vx[1:-2] = 0.5 * (alpha_vxp[1:-2,:] * (self.v[1:-2,1:] - self.v[:-3,1:]) +
-                                        alpha_vxm * (self.v[2:-1,1:] - self.v[3:,1:]))
-                gamma_vx[0] = 0.5 * alpha_vxm[0] * (self.v[1:,1] - self.v[2:,1])
-                gamma_vx[-1] = 0.5 * alpha_vxp[-1] * (self.v[-1,1:] - self.v[-2,1:])
-                gamma_vx[-2] = 0.5 * alpha_vxp[-2] * (self.v[-2,1:] - self.v[-3,1:])
-                
-            # discretization coefficients (nx,ny-1 for w,e; nx,ny for n,s, nx,ny-1 for p,hat)
-            a_p = (self.dy * self.dx / self.dt) -\
-                    self.dx * (alpha_vyp[:,1:-1] - alpha_vym[:,:-2] + (2 / (self.Re * self.dy))) -\
-                    self.dy * (alpha_vxp[1:,:-1] - alpha_vxm[:-1,:-1] + (2 / (self.Re * self.dx)))
-            a_s = -self.dx * (alpha_vyp[:,:-1] + 1 / (self.Re * self.dy))
-            a_n = -self.dx * (-alpha_vym[:,1:] + 1 / (self.Re * self.dy))
-            a_w = -self.dy * (alpha_vxp[:-1,:-1] + 1 / (self.Re * self.dx))
-            a_e = -self.dy * (-alpha_vxm[1:,:-1] + 1 / (self.Re * self.dx))
-            a_hat = self.dx * (gamma_vy[:,1:-1] - gamma_vy[:,:-2]) +\
-                    self.dy * (gamma_vx[1:,:-1] - gamma_vx[:-1,:-1])
-            
-            # pressure gradient(nx,ny-1)
-            dP = -(self.p[:,1:] - self.p[:,:-1]) * self.dx
-            
             # update
             value_old = np.copy(self.v_star[1:-1,1:-1])
-            self.v_star[1:-1,1:-1] = (alpha_inner * (a_e * self.v_star[1:-1,2:] + 
-                                        a_w * self.v_star[1:-1,:-2] +
-                                        a_n[:,:-1] * self.v_star[2:,1:-1] +
-                                        a_s[:,:-1] * self.v_star[:-2,1:-1] +
-                                        dP) + (1 - alpha_inner) * self.dy * self.dx / self.dt * self.v_star[1:-1,1:-1] +
-                                        a_hat) / (a_p + 1e-8)
+            self.v_star[1:-1,1:-1] = (self.alpha_u * (a_e * self.v_star[1:-1,2:] + 
+                                     a_w * self.v_star[1:-1,:-2] +
+                                     a_n[:,:-1] * self.v_star[2:,1:-1] +
+                                     a_s[:,:-1] * self.v_star[:-2,1:-1] +
+                                     dP + a_hat
+                                     ) + (1 - self.alpha_u) * self.dy * self.dx / self.dt * value_old
+                                    ) / (a_p + 1e-8)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
             diff = np.max(np.abs(self.v_star[1:-1,1:-1] - value_old))
             if diff < self.tol:
@@ -223,28 +227,28 @@ class CavitySIMPLE(DiffSchemes):
             p_virtual_d = np.concatenate((self.p_prime[0, :][np.newaxis,:], self.p_prime[:-1, :]), axis=0)
             p_virtual_u = np.concatenate((self.p_prime[1:, :], self.p_prime[-1, :][np.newaxis,:]), axis=0)
             return p_virtual_u, p_virtual_d, p_virtual_l, p_virtual_r
-        
+        # w,e,u,d with BDC (nx,ny)
+        p_virtual_u, p_virtual_d, p_virtual_l, p_virtual_r = get_transitioned()
+        # p_u = self.p_prime[:, 1:]
+        # p_d = self.p_prime[:, :-1]
+        # p_l = self.p_prime[:-1]
+        # p_r = self.p_prime[1:]
+        # coefficients (nx,ny)
+        c_e = self.dy ** 2 / a_e
+        c_w = self.dy ** 2 / a_w
+        c_n = self.dx ** 2 / b_n
+        c_s = self.dx ** 2 / b_s
+        c_p = c_e + c_w + c_n + c_s
+        # c_p[0] -= c_w[0]
+        # c_p[-1] -= c_e[-1]
+        # c_p[:, -1] -= c_n[:, -1]
+        # c_p[:, 0] -= c_s[:, 0]
+        c_hat = -(
+            self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
+            self.dx * (self.v_star[1:-1,1:] - self.v_star[1:-1,:-1])
+        )
         for _ in range(iter_p):
-            # w,e,u,d with BDC (nx,ny)
-            p_virtual_u, p_virtual_d, p_virtual_l, p_virtual_r = get_transitioned()
-            # p_u = self.p_prime[:, 1:]
-            # p_d = self.p_prime[:, :-1]
-            # p_l = self.p_prime[:-1]
-            # p_r = self.p_prime[1:]
-            # coefficients (nx,ny)
-            c_e = self.dy ** 2 / a_e
-            c_w = self.dy ** 2 / a_w
-            c_n = self.dx ** 2 / b_n
-            c_s = self.dx ** 2 / b_s
-            c_p = c_e + c_w + c_n + c_s
-            # c_p[0] -= c_w[0]
-            # c_p[-1] -= c_e[-1]
-            # c_p[:, -1] -= c_n[:, -1]
-            # c_p[:, 0] -= c_s[:, 0]
-            c_hat = -(
-                self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
-                self.dx * (self.v_star[1:-1,1:] - self.v_star[1:-1,:-1])
-            )
+            
             value_old = np.copy(self.p_prime)
             # self.p_prime[1:-1,1:-1] = (1/(c_p[1:-1,1:-1] + 1e-8)) * (
             #     c_e[1:-1,1:-1] * p_r[1:,1:-1] +
@@ -305,7 +309,6 @@ class CavitySIMPLE(DiffSchemes):
                 c_hat
             )
 
-            
             # check inner convergence
             res = np.sum(np.abs(self.p_prime - value_old))
             if res < self.tol:

@@ -222,6 +222,7 @@ class CavitySIMPLE(DiffSchemes):
         # nx,ny
         return a_n, a_s
     
+    # TODO: RE-PROCESS THE BOUNDARY POINTS WITHOUT THE VIRTUAL P_PRIMES
     def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=1000):
         """solve pressure correction equation"""
         def get_transitioned():

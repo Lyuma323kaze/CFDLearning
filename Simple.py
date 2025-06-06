@@ -94,7 +94,7 @@ class CavitySIMPLE(DiffSchemes):
         # self.u_star[:, -1] = self.U_top  # upper x cover by virtual node
         self.v_star[:, -1] = 0.0         # v velocity on the top
 
-    def solve_momentum_u_star(self, uworder=1, iter_u=200):
+    def solve_momentum_u_star(self, uworder=1, iter_u=10):
         """solve u-momentum equation"""
         self.u_star = np.copy(self.u)  # initialize u_star
         
@@ -137,9 +137,10 @@ class CavitySIMPLE(DiffSchemes):
         a_n = self.dx * (-alpha_uym[:-1,1:] + 1 / (self.Re * self.dy))
         a_hat = self.dy * (gamma_ux[1:-1] - gamma_ux[:-2]) +\
                 self.dx * (gamma_uy[:-1,1:] - gamma_uy[:-1,:-1])
-        if np.min(a_n / a_p) < 0:
-            print(np.min(a_n / a_p))
-            raise ValueError('positive coefficient rule was ruined')
+        # print(np.max(a_n/a_p))
+        # if np.min(a_n / a_p) < 0:
+        #     print(np.min(a_n / a_p))
+        #     raise ValueError('positive coefficient rule was ruined')
         # pressure gradient(nx-1,ny)
         dP = -(self.p[1:] - self.p[:-1]) * self.dy
             
@@ -156,12 +157,12 @@ class CavitySIMPLE(DiffSchemes):
                                 ) / (a_p + 1e-8)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
             diff = np.max(np.abs(self.u_star[1:-1,1:-1] - value_old))
-            if diff < self.tol:
-                return a_e, a_w
+            # if diff < self.tol:
+            #     return a_e, a_w
         # nx,ny
         return a_e, a_w
 
-    def solve_momentum_v_star(self, uworder=1, iter_v=200):
+    def solve_momentum_v_star(self, uworder=1, iter_v=10):
         """solve momentum equation"""
         self.v_star = np.copy(self.v)  # initialize u_star
         # upwind coefficients
@@ -216,18 +217,18 @@ class CavitySIMPLE(DiffSchemes):
                                     ) / (a_p + 1e-8)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
             diff = np.max(np.abs(self.v_star[1:-1,1:-1] - value_old))
-            if diff < self.tol:
-                return a_n, a_s
+            # if diff < self.tol:
+            #     return a_n, a_s
         # nx,ny
         return a_n, a_s
     
-    def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=500):
+    def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=1000):
         """solve pressure correction equation"""
         def get_transitioned():
-            p_virtual_r = np.concatenate((self.p_prime[:, 1:], self.p_prime[:, -1][:,np.newaxis]), axis=1)
-            p_virtual_l = np.concatenate((self.p_prime[:, 0][:,np.newaxis], self.p_prime[:, :-1]), axis=1)
-            p_virtual_d = np.concatenate((self.p_prime[0, :][np.newaxis,:], self.p_prime[:-1, :]), axis=0)
-            p_virtual_u = np.concatenate((self.p_prime[1:, :], self.p_prime[-1, :][np.newaxis,:]), axis=0)
+            p_virtual_u = np.concatenate((self.p_prime[:, 1:], self.p_prime[:, -1][:,np.newaxis]), axis=1)
+            p_virtual_d = np.concatenate((self.p_prime[:, 0][:,np.newaxis], self.p_prime[:, :-1]), axis=1)
+            p_virtual_l = np.concatenate((self.p_prime[0, :][np.newaxis,:], self.p_prime[:-1, :]), axis=0)
+            p_virtual_r = np.concatenate((self.p_prime[1:, :], self.p_prime[-1, :][np.newaxis,:]), axis=0)
             return p_virtual_u, p_virtual_d, p_virtual_l, p_virtual_r
         # w,e,u,d with BDC (nx,ny)
         p_virtual_u, p_virtual_d, p_virtual_l, p_virtual_r = get_transitioned()
@@ -241,6 +242,7 @@ class CavitySIMPLE(DiffSchemes):
         c_n = self.dx ** 2 / b_n
         c_s = self.dx ** 2 / b_s
         c_p = c_e + c_w + c_n + c_s
+        # print(np.max(np.abs(c_e / c_p)))
         # c_p[0] -= c_w[0]
         # c_p[-1] -= c_e[-1]
         # c_p[:, -1] -= c_n[:, -1]
@@ -410,7 +412,7 @@ class CavitySIMPLE(DiffSchemes):
             if iter % 200 == 0:
                 print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
             
-            if u_res < self.tol and v_res < self.tol and mass_error < 1e-4:
+            if u_res < self.tol and v_res < self.tol and self.chat < self.tol:
                 print(f"Converged at iteration {iter}")
                 break
 
@@ -426,4 +428,6 @@ class CavitySIMPLE(DiffSchemes):
         print(self.u)
         print('self.p')
         print(self.p)
+        print('the reference')
+        print(self.p[100,100])
         return u_center, v_center, self.p

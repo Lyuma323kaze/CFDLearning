@@ -9,14 +9,14 @@ x = np.linspace(0, 1, nx)
 y = np.linspace(0, 1, ny)
 dx = x[1] - x[0]
 dy = y[1] - y[0]
-cfl = 0.005
+cfl = 1
 dt = cfl * min(dx, dy)  # time step
-Re = 1000  # Reynolds number 
+Re = 3000  # Reynolds number 
 U_top = 1.0
 alpha_u = 0.3     # velocity relaxation factor
-alpha_p = 0.3   # pressure relaxation factor
-max_iter = 4000
-tol = 1e-5
+alpha_p = 0.8   # pressure relaxation factor
+max_iter = 2000
+tol = 1e-7
 
 # 初始化求解器
 cavity = CavitySIMPLE(
@@ -55,7 +55,7 @@ plt.subplot(1, 2, 1)
 # 绘制流线图
 # u.shape = (nx,ny), v.shape = (nx,ny)
 plt.streamplot(X.T, Y.T, u.T, v.T, 
-               density=1.5, color='black', linewidth=1, arrowsize=1)
+               density=3, color='black', linewidth=1, arrowsize=1)
 plt.title('Streamlines')
 plt.xlabel('x')
 plt.ylabel('y')
@@ -66,7 +66,7 @@ plt.gca().set_aspect('equal')  # 确保坐标轴比例相等
 # 压力图 - 右子图
 plt.subplot(1, 2, 2)
 # 绘制压力云图
-contour = plt.contourf(X, Y, u, 20, cmap='coolwarm')
+contour = plt.contourf(X, Y, p, 20, cmap='coolwarm')
 plt.colorbar(contour, label='Pressure')
 plt.title('Pressure Contour')
 plt.xlabel('x')

@@ -112,7 +112,9 @@ class CavitySIMPLE(DiffSchemes):
         self.p_prime_r[-1] = self.p_prime[-1]
         return
 
-    def solve_momentum_u_star(self, uworder=1, iter_u=10):
+    # TODO: fix the viscosity, so that we can transfer the influence of the lid to the
+    # domain correctly
+    def solve_momentum_u_star(self, uworder=1, iter_u=100):
         """solve u-momentum equation"""
         self.u_star = np.copy(self.u)  # initialize u_star
         
@@ -155,32 +157,38 @@ class CavitySIMPLE(DiffSchemes):
         a_n = self.dx * (-alpha_uym[:-1,1:] + 1 / (self.Re * self.dy))
         a_hat = self.dy * (gamma_ux[1:-1] - gamma_ux[:-2]) +\
                 self.dx * (gamma_uy[:-1,1:] - gamma_uy[:-1,:-1])
+        # print('uxp')
+        # print(np.max(alpha_uyp[:-1,:-1])/ (1 / (self.Re * self.dy)))
+        # print('uxm')
+        # print(np.max(-alpha_uym[:-1,1:])/ (1 / (self.Re * self.dy)))
         # print(np.max(a_n/a_p))
         # if np.min(a_n / a_p) < 0:
         #     print(np.min(a_n / a_p))
         #     raise ValueError('positive coefficient rule was ruined')
         # pressure gradient(nx-1,ny)
         dP = -(self.p[1:] - self.p[:-1]) * self.dy
-            
+        
+        value_old = np.empty_like(self.u_star)
         for _ in range(iter_u):
             # update
-            value_old = np.copy(self.u_star[1:-1,1:-1])
-            self.u_star[1:-1,1:-1] =(self.alpha_u * (
-                                    a_e[:-1] * self.u_star[2:,1:-1] + 
-                                    a_w[:-1] * self.u_star[:-2,1:-1] +
-                                    a_n * self.u_star[1:-1,2:] +
-                                    a_s * self.u_star[1:-1,:-2] +
+            np.copyto(value_old,self.u_star)
+            self.u_star[1:-1,1:-1] = (self.alpha_u * (
+                                    a_e[:-1] * value_old[2:,1:-1] + 
+                                    a_w[:-1] * value_old[:-2,1:-1] +
+                                    a_n * value_old[1:-1,2:] +
+                                    a_s * value_old[1:-1,:-2] +
                                     dP + a_hat
-                                    ) + (1 - self.alpha_u) * self.dx * self.dy / self.dt * value_old
+                                    ) + 
+                                    (1 - self.alpha_u) * self.dx * self.dy / self.dt * value_old[1:-1,1:-1]
                                 ) / (a_p + 1e-8)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
-            diff = np.max(np.abs(self.u_star[1:-1,1:-1] - value_old))
+            diff = np.max(np.abs(self.u_star[1:-1,1:-1] - value_old[1:-1,1:-1]))
             # if diff < self.tol:
             #     return a_e, a_w
         # nx,ny
         return a_e, a_w
 
-    def solve_momentum_v_star(self, uworder=1, iter_v=10):
+    def solve_momentum_v_star(self, uworder=1, iter_v=100):
         """solve momentum equation"""
         self.v_star = np.copy(self.v)  # initialize u_star
         # upwind coefficients
@@ -222,25 +230,27 @@ class CavitySIMPLE(DiffSchemes):
         
         # pressure gradient(nx,ny-1)
         dP = -(self.p[:,1:] - self.p[:,:-1]) * self.dx
-            
+        
+        value_old = np.empty_like(self.v_star)
         for _ in range(iter_v):
             # update
-            value_old = np.copy(self.v_star[1:-1,1:-1])
-            self.v_star[1:-1,1:-1] = (self.alpha_u * (a_e * self.v_star[1:-1,2:] + 
-                                     a_w * self.v_star[1:-1,:-2] +
-                                     a_n[:,:-1] * self.v_star[2:,1:-1] +
-                                     a_s[:,:-1] * self.v_star[:-2,1:-1] +
-                                     dP + a_hat
-                                     ) + (1 - self.alpha_u) * self.dy * self.dx / self.dt * value_old
+            np.copyto(value_old, self.v_star)
+            self.v_star[1:-1,1:-1] = (self.alpha_u * (
+                                    a_e * value_old[1:-1,2:] + 
+                                    a_w * value_old[1:-1,:-2] +
+                                    a_n[:,:-1] * value_old[2:,1:-1] +
+                                    a_s[:,:-1] * value_old[:-2,1:-1] +
+                                    dP + a_hat
+                                    ) + 
+                                    (1 - self.alpha_u) * self.dy * self.dx / self.dt * value_old[1:-1,1:-1]
                                     ) / (a_p + 1e-8)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
-            diff = np.max(np.abs(self.v_star[1:-1,1:-1] - value_old))
+            diff = np.max(np.abs(self.v_star[1:-1,1:-1] - value_old[1:-1,1:-1]))
             # if diff < self.tol:
             #     return a_n, a_s
         # nx,ny
         return a_n, a_s
     
-    # TODO: RE-PROCESS THE BOUNDARY POINTS WITHOUT THE VIRTUAL P_PRIMES
     def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=1000):
         """solve pressure correction equation"""
         # w,e,u,d with BDC (nx,ny)
@@ -398,7 +408,7 @@ class CavitySIMPLE(DiffSchemes):
             v_res = np.max(np.abs(self.v - v_old))
             
             
-            if iter % 20 == 0:
+            if iter % 200 == 0:
                 print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, res={self.res:.2e}")
             
             if u_res < self.tol and v_res < self.tol and self.chat < self.tol:
@@ -414,7 +424,7 @@ class CavitySIMPLE(DiffSchemes):
         v_center = np.zeros((self.nx, self.ny))
         v_center = 0.5 * (self.v[1:-1, :-1] + self.v[1:-1, 1:])
         print('self.u')
-        print(self.u)
+        print(self.u[50:150])
         print('self.p')
         print(self.p)
         print('the reference')

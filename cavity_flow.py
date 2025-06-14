@@ -2,20 +2,29 @@ from Simple import CavitySIMPLE
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
+import os
 
-# 定义计算域和参数
+# name and folder of the case
+name = 'cavity_flow'
+folder = 'Proj2\\SIMPLE'
+if not os.path.exists(folder):
+    os.makedirs(folder)
+file_path = os.path.join(folder, f'{name}.png')
+
+
+# domain and computational parameters
 nx, ny = 200, 200
 x = np.linspace(0, 1, nx)
 y = np.linspace(0, 1, ny)
 dx = x[1] - x[0]
 dy = y[1] - y[0]
-cfl = 1
+cfl = 10
 dt = cfl * min(dx, dy)  # time step
-Re = 3000  # Reynolds number 
+Re = 1000  # Reynolds number 
 U_top = 1.0
 alpha_u = 0.3     # velocity relaxation factor
 alpha_p = 0.8   # pressure relaxation factor
-max_iter = 1000
+max_iter = 5000
 tol = 1e-7
 
 # 初始化求解器
@@ -76,4 +85,4 @@ plt.ylim(0, 1)
 plt.gca().set_aspect('equal')  # 确保坐标轴比例相等
 
 plt.tight_layout()
-plt.show()
+plt.savefig(file_path)

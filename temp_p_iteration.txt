@@ -111,3 +111,11 @@
             #     c_w[100,99] * p_l[100,99] +
             #     c_hat[100,99]
             # )
+
+            # get_transitioned
+            # def get_transitioned():
+            #     p_virtual_u = np.concatenate((self.p_prime[:, 1:], self.p_prime[:, -1][:,np.newaxis]), axis=1)
+            #     p_virtual_d = np.concatenate((self.p_prime[:, 0][:,np.newaxis], self.p_prime[:, :-1]), axis=1)
+            #     p_virtual_l = np.concatenate((self.p_prime[0, :][np.newaxis,:], self.p_prime[:-1, :]), axis=0)
+            #     p_virtual_r = np.concatenate((self.p_prime[1:, :], self.p_prime[-1, :][np.newaxis,:]), axis=0)
+            #     return p_virtual_u, p_virtual_d, p_virtual_l, p_virtual_r

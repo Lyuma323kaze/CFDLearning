@@ -243,12 +243,6 @@ class CavitySIMPLE(DiffSchemes):
     # TODO: RE-PROCESS THE BOUNDARY POINTS WITHOUT THE VIRTUAL P_PRIMES
     def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=1000):
         """solve pressure correction equation"""
-        # def get_transitioned():
-        #     p_virtual_u = np.concatenate((self.p_prime[:, 1:], self.p_prime[:, -1][:,np.newaxis]), axis=1)
-        #     p_virtual_d = np.concatenate((self.p_prime[:, 0][:,np.newaxis], self.p_prime[:, :-1]), axis=1)
-        #     p_virtual_l = np.concatenate((self.p_prime[0, :][np.newaxis,:], self.p_prime[:-1, :]), axis=0)
-        #     p_virtual_r = np.concatenate((self.p_prime[1:, :], self.p_prime[-1, :][np.newaxis,:]), axis=0)
-        #     return p_virtual_u, p_virtual_d, p_virtual_l, p_virtual_r
         # w,e,u,d with BDC (nx,ny)
         # p_u, p_d, p_l, p_r = get_transitioned()
         self.get_transitioned()
@@ -259,22 +253,23 @@ class CavitySIMPLE(DiffSchemes):
         c_s = self.dx ** 2 / b_s
         c_p = c_e + c_w + c_n + c_s
         inv_c_p = 1.0 / (c_p + 1e-8)
-        inv_c_l = 1/((c_e+c_n+c_s)[0,1:-1] + 1e-8)
-        inv_c_r = 1/((c_w+c_n+c_s)[-1,1:-1] + 1e-8)
-        inv_c_u = 1/((c_w+c_s+c_e)[1:-1,-1] + 1e-8)
-        inv_c_d = 1/((c_w+c_n+c_e)[1:-1,0] + 1e-8)
-        inv_c_lu = 1/((c_e+c_s)[0,-1] + 1e-8)
-        inv_c_ld = 1/((c_e+c_n)[0,0] + 1e-8)
-        inv_c_ru = 1/((c_w+c_s)[-1,-1] + 1e-8)
-        inv_c_rd = 1/((c_w+c_n)[-1,0] + 1e-8)
+        inv_c_l = 1. / ((c_e+c_n+c_s)[0,1:-1] + 1e-8)
+        inv_c_r = 1. / ((c_w+c_n+c_s)[-1,1:-1] + 1e-8)
+        inv_c_u = 1. / ((c_w+c_s+c_e)[1:-1,-1] + 1e-8)
+        inv_c_d = 1. / ((c_w+c_n+c_e)[1:-1,0] + 1e-8)
+        inv_c_lu = 1. / ((c_e+c_s)[0,-1] + 1e-8)
+        inv_c_ld = 1. / ((c_e+c_n)[0,0] + 1e-8)
+        inv_c_ru = 1. / ((c_w+c_s)[-1,-1] + 1e-8)
+        inv_c_rd = 1. / ((c_w+c_n)[-1,0] + 1e-8)
         # print(np.max(np.abs(c_e / c_p)))
         c_hat = -(
             self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
             self.dx * (self.v_star[1:-1,1:] - self.v_star[1:-1,:-1])
         )
+        value_old = np.empty_like(self.p_prime)
         self.chat = np.max(np.abs(c_hat))
         for _ in range(iter_p):
-            value_old = np.copy(self.p_prime)
+            np.copyto(value_old, self.p_prime)
             # jacobian p_prime update with [100,100] the reference
             # inner points
             # overall update
@@ -403,8 +398,8 @@ class CavitySIMPLE(DiffSchemes):
             v_res = np.max(np.abs(self.v - v_old))
             
             
-            if iter % 200 == 0:
-                print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
+            if iter % 20 == 0:
+                print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, res={self.res:.2e}")
             
             if u_res < self.tol and v_res < self.tol and self.chat < self.tol:
                 print(f"Converged at iteration {iter}")

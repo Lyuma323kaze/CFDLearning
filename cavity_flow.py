@@ -18,14 +18,14 @@ x = np.linspace(0, 1, nx)
 y = np.linspace(0, 1, ny)
 dx = x[1] - x[0]
 dy = y[1] - y[0]
-cfl = 10
+cfl = 1e-1
 dt = cfl * min(dx, dy)  # time step
-Re = 1000  # Reynolds number 
+Re = 1e-8  # Reynolds number 
 U_top = 1.0
-alpha_u = 0.3     # velocity relaxation factor
+alpha_u = 0.8     # velocity relaxation factor
 alpha_p = 0.8   # pressure relaxation factor
-max_iter = 5000
-tol = 1e-7
+max_iter = 2000
+tol = 1e-10
 
 # 初始化求解器
 cavity = CavitySIMPLE(

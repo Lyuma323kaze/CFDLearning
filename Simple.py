@@ -56,45 +56,45 @@ class CavitySIMPLE(DiffSchemes):
     def apply_boundary_conditions(self):
         """Set boundary values"""
         # bottom fixed (no slip)
-        self.u[:, 0] = -self.u[:, 1]   # u=0 by virtual node
-        # self.u[:, 0] = 0.0
+        # self.u[:, 0] = -self.u[:, 1]   # u=0 by virtual node
+        self.u[:, 0] = 0.0
         self.v[:, 0] = 0.0   # v=0
         
         # left side fixed (no slip)
         self.u[0, :] = 0.0   # u=0
-        self.v[0, :] = -self.v[1, :]   # v=0 by virtual node
-        # self.v[0, :] = 0.0   # v=0 by virtual node
+        # self.v[0, :] = -self.v[1, :]   # v=0 by virtual node
+        self.v[0, :] = 0.0   # v=0 by virtual node
         
         # right side fixed (no slip)
         self.u[-1, :] = 0.0  # u=0
-        self.v[-1, :] = -self.v[-2, :]  # v=0 by virtual node
-        # self.v[-1, :] = 0.0  # v=0 by virtual node
+        # self.v[-1, :] = -self.v[-2, :]  # v=0 by virtual node
+        self.v[-1, :] = 0.0  # v=0 by virtual node
         
         # Upper lid moving (u velocity)
-        self.u[:, -1] = 2 * self.U_top - self.u[:, -2]  # upper x cover by virtual node
-        # self.u[:, -1] = self.U_top  # upper x cover by virtual node
+        # self.u[:, -1] = 2 * self.U_top - self.u[:, -2]  # upper x cover by virtual node
+        self.u[:, -1] = self.U_top  # upper x cover by virtual node
         self.v[:, -1] = 0.0         # v velocity on the top
 
     def apply_boundary_conditions_star(self):
         """Set boundary values for prediction values"""
         # bottom fixed (no slip)
-        self.u_star[:, 0] = -self.u_star[:, 1]   # u=0 by virtual node
-        # self.u_star[:, 0] = 0.0
+        # self.u_star[:, 0] = -self.u_star[:, 1]   # u=0 by virtual node
+        self.u_star[:, 0] = 0.0
         self.v_star[:, 0] = 0.0   # v=0
         
         # left side fixed (no slip)
         self.u_star[0, :] = 0.0   # u=0
-        self.v_star[0, :] = -self.v_star[1, :]   # v=0 by virtual node
-        # self.v_star[0, :] = 0.0
+        # self.v_star[0, :] = -self.v_star[1, :]   # v=0 by virtual node
+        self.v_star[0, :] = 0.0
         
         # right side fixed (no slip)
         self.u_star[-1, :] = 0.0  # u=0
-        self.v_star[-1, :] = -self.v_star[-2, :]  # v=0 by virtual node
-        # self.v_star[-1, :] = 0.0
+        # self.v_star[-1, :] = -self.v_star[-2, :]  # v=0 by virtual node
+        self.v_star[-1, :] = 0.0
         
         # upper lid moving (u velocity)
-        self.u_star[:, -1] = 2 * self.U_top - self.u_star[:, -2]  # upper x cover by virtual node
-        # self.u_star[:, -1] = self.U_top  # upper x cover by virtual node
+        # self.u_star[:, -1] = 2 * self.U_top - self.u_star[:, -2]  # upper x cover by virtual node
+        self.u_star[:, -1] = self.U_top  # upper x cover by virtual node
         self.v_star[:, -1] = 0.0         # v velocity on the top
 
     def get_transitioned(self):
@@ -121,7 +121,7 @@ class CavitySIMPLE(DiffSchemes):
         # upwind coefficients
         u_avr_x = np.empty((self.nx+1, self.ny+2))
         u_avr_x[:-1,:] = (self.u[:-1,:] + self.u[1:,:]) / 2 
-        u_avr_x[-1,:] = 0.5 * self.u[-1,:]  # last row is the right boundary
+        u_avr_x[-1,:] = 0.5 * self.u[-1,:]  # last row is the right boundary, useless, only for shape
         
         alpha_uxp = np.maximum(u_avr_x, 0)[:,1:-1]     # nx+1, ny
         alpha_uxm = np.minimum(u_avr_x, 0)[:,1:-1]     # nx+1, ny
@@ -148,13 +148,17 @@ class CavitySIMPLE(DiffSchemes):
             gamma_uy[:,-2] = 0.5 * alpha_uyp[:,-2] * (self.u[1:,-2] - self.u[1:,-3])
             
         # discretization coefficients (nx-1,ny for n,s; nx,ny for e,w, nx-1,ny for p,hat)
-        a_p = (self.dx * self.dy / self.dt) +\
-                self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) +\
-                self.dx * (alpha_uyp[:-1,1:] - alpha_uym[:-1,:-1] + (2 / (self.Re * self.dy)))
         a_w = self.dy * (alpha_uxp[:-1] + 1 / (self.Re * self.dx))
         a_e = self.dy * (-alpha_uxm[1:] + 1 / (self.Re * self.dx))
         a_s = self.dx * (alpha_uyp[:-1,:-1] + 1 / (self.Re * self.dy))
         a_n = self.dx * (-alpha_uym[:-1,1:] + 1 / (self.Re * self.dy))
+        a_n[:,-1] *= 2
+        a_s[:,0] *= 2
+        a_p = (self.dx * self.dy / self.dt) +\
+                self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) +\
+                self.dx * (alpha_uyp[:-1,1:] - alpha_uym[:-1,:-1] + (2 / (self.Re * self.dy)))
+        a_p[:,-1] += self.dx / (self.Re * self.dy)
+        a_p[:,0] += self.dx / (self.Re * self.dy)
         a_hat = self.dy * (gamma_ux[1:-1] - gamma_ux[:-2]) +\
                 self.dx * (gamma_uy[:-1,1:] - gamma_uy[:-1,:-1])
         # print('uxp')
@@ -179,12 +183,13 @@ class CavitySIMPLE(DiffSchemes):
                                     a_s * value_old[1:-1,:-2] +
                                     dP + a_hat
                                     ) + 
-                                    (1 - self.alpha_u) * self.dx * self.dy / self.dt * value_old[1:-1,1:-1]
-                                ) / (a_p + 1e-8)
+                                    (1 - self.alpha_u) * self.dx * self.dy * value_old[1:-1,1:-1] / self.dt 
+                                ) / (a_p + 1e-12)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
             diff = np.max(np.abs(self.u_star[1:-1,1:-1] - value_old[1:-1,1:-1]))
             # if diff < self.tol:
             #     return a_e, a_w
+        # print(np.max(a_n/ (self.dx / (self.Re * self.dy))))
         # nx,ny
         return a_e, a_w
 
@@ -194,7 +199,7 @@ class CavitySIMPLE(DiffSchemes):
         # upwind coefficients
         v_avr_y = np.empty((self.nx+2, self.ny+1))
         v_avr_y[:,:-1] = (self.v[:,:-1] + self.v[:,1:]) / 2 
-        v_avr_y[:,-1] = 0.5 * self.v[:,-1]  # last column is the right boundary
+        v_avr_y[:,-1] = 0.5 * self.v[:,-1]  # last row is the upper boundary, useless, only for shape
         
         alpha_vyp = np.maximum(v_avr_y, 0)[1:-1,:]     # nx, ny+1
         alpha_vym = np.minimum(v_avr_y, 0)[1:-1,:]     # nx, ny+1
@@ -218,16 +223,20 @@ class CavitySIMPLE(DiffSchemes):
             gamma_vx[-2] = 0.5 * alpha_vxp[-2] * (self.v[-2,1:] - self.v[-3,1:])
             
         # discretization coefficients (nx,ny-1 for w,e; nx,ny for n,s, nx,ny-1 for p,hat)
-        a_p = (self.dy * self.dx / self.dt) +\
-                self.dx * (alpha_vyp[:,1:-1] - alpha_vym[:,:-2] + (2 / (self.Re * self.dy))) +\
-                self.dy * (alpha_vxp[1:,:-1] - alpha_vxm[:-1,:-1] + (2 / (self.Re * self.dx)))
         a_s = self.dx * (alpha_vyp[:,:-1] + 1 / (self.Re * self.dy))
         a_n = self.dx * (-alpha_vym[:,1:] + 1 / (self.Re * self.dy))
         a_w = self.dy * (alpha_vxp[:-1,:-1] + 1 / (self.Re * self.dx))
         a_e = self.dy * (-alpha_vxm[1:,:-1] + 1 / (self.Re * self.dx))
+        a_w[0] *= 2
+        a_e[0] *= 2
+        a_p = (self.dy * self.dx / self.dt) +\
+                self.dx * (alpha_vyp[:,1:-1] - alpha_vym[:,:-2] + (2 / (self.Re * self.dy))) +\
+                self.dy * (alpha_vxp[1:,:-1] - alpha_vxm[:-1,:-1] + (2 / (self.Re * self.dx)))
+        a_p[0,:] += self.dy / (self.Re * self.dx)
+        a_p[-1,:] += self.dy / (self.Re * self.dx)
         a_hat = self.dx * (gamma_vy[:,1:-1] - gamma_vy[:,:-2]) +\
                 self.dy * (gamma_vx[1:,:-1] - gamma_vx[:-1,:-1])
-        
+        # print(np.max(np.abs(a_p))/np.max(np.abs(a_n)))
         # pressure gradient(nx,ny-1)
         dP = -(self.p[:,1:] - self.p[:,:-1]) * self.dx
         
@@ -236,21 +245,21 @@ class CavitySIMPLE(DiffSchemes):
             # update
             np.copyto(value_old, self.v_star)
             self.v_star[1:-1,1:-1] = (self.alpha_u * (
-                                    a_e * value_old[1:-1,2:] + 
-                                    a_w * value_old[1:-1,:-2] +
-                                    a_n[:,:-1] * value_old[2:,1:-1] +
-                                    a_s[:,:-1] * value_old[:-2,1:-1] +
+                                    a_n[:,:-1] * value_old[1:-1,2:] + 
+                                    a_s[:,:-1] * value_old[1:-1,:-2] +
+                                    a_e * value_old[2:,1:-1] +
+                                    a_w * value_old[:-2,1:-1] +
                                     dP + a_hat
                                     ) + 
-                                    (1 - self.alpha_u) * self.dy * self.dx / self.dt * value_old[1:-1,1:-1]
-                                    ) / (a_p + 1e-8)
+                                    (1 - self.alpha_u) * self.dy * self.dx * value_old[1:-1,1:-1] / self.dt 
+                                    ) / (a_p + 1e-12)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
             diff = np.max(np.abs(self.v_star[1:-1,1:-1] - value_old[1:-1,1:-1]))
             # if diff < self.tol:
             #     return a_n, a_s
         # nx,ny
         return a_n, a_s
-    
+    # TODO: fix the wrong coefficients of pressure
     def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=1000):
         """solve pressure correction equation"""
         # w,e,u,d with BDC (nx,ny)
@@ -262,15 +271,15 @@ class CavitySIMPLE(DiffSchemes):
         c_n = self.dx ** 2 / b_n
         c_s = self.dx ** 2 / b_s
         c_p = c_e + c_w + c_n + c_s
-        inv_c_p = 1.0 / (c_p + 1e-8)
-        inv_c_l = 1. / ((c_e+c_n+c_s)[0,1:-1] + 1e-8)
-        inv_c_r = 1. / ((c_w+c_n+c_s)[-1,1:-1] + 1e-8)
-        inv_c_u = 1. / ((c_w+c_s+c_e)[1:-1,-1] + 1e-8)
-        inv_c_d = 1. / ((c_w+c_n+c_e)[1:-1,0] + 1e-8)
-        inv_c_lu = 1. / ((c_e+c_s)[0,-1] + 1e-8)
-        inv_c_ld = 1. / ((c_e+c_n)[0,0] + 1e-8)
-        inv_c_ru = 1. / ((c_w+c_s)[-1,-1] + 1e-8)
-        inv_c_rd = 1. / ((c_w+c_n)[-1,0] + 1e-8)
+        inv_c_p = 1.0 / (c_p + 1e-12)
+        inv_c_l = 1. / ((c_e+c_n+c_s)[0,1:-1] + 1e-12)
+        inv_c_r = 1. / ((c_w+c_n+c_s)[-1,1:-1] + 1e-12)
+        inv_c_u = 1. / ((c_w+c_s+c_e)[1:-1,-1] + 1e-12)
+        inv_c_d = 1. / ((c_w+c_n+c_e)[1:-1,0] + 1e-12)
+        inv_c_lu = 1. / ((c_e+c_s)[0,-1] + 1e-12)
+        inv_c_ld = 1. / ((c_e+c_n)[0,0] + 1e-12)
+        inv_c_ru = 1. / ((c_w+c_s)[-1,-1] + 1e-12)
+        inv_c_rd = 1. / ((c_w+c_n)[-1,0] + 1e-12)
         # print(np.max(np.abs(c_e / c_p)))
         c_hat = -(
             self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
@@ -341,18 +350,6 @@ class CavitySIMPLE(DiffSchemes):
                 c_s[-1,-1] * self.p_prime_d[-1,-1] +
                 c_hat[-1,-1]
             )
-            
-            # linear G-S iteration
-            # TODO: ...
-            
-            # simple jacobian update (same as )
-            # self.p_prime = (1/(c_p + 1e-8)) * (
-            #     c_e * p_virtual_r +
-            #     c_w * p_virtual_l +
-            #     c_n * p_virtual_u +
-            #     c_s * p_virtual_d +
-            #     c_hat
-            # )
             self.p_prime[100,100] = 0
             # w,e,u,d with BDC (nx,ny)
             self.get_transitioned()
@@ -402,16 +399,15 @@ class CavitySIMPLE(DiffSchemes):
                 (self.v[1:-1, :-1] - self.v[1:-1, 1:]) * self.dx
             ))
             mass_error /= (self.dx * self.dy)
-            
             # convergence check
             u_res = np.max(np.abs(self.u - u_old))
             v_res = np.max(np.abs(self.v - v_old))
             
             
             if iter % 200 == 0:
-                print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, res={self.res:.2e}")
+                print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
             
-            if u_res < self.tol and v_res < self.tol and self.chat < self.tol:
+            if (u_res < self.tol) and (v_res < self.tol) and (self.chat < self.tol) and (self.res < self.tol):
                 print(f"Converged at iteration {iter}")
                 break
 
@@ -423,10 +419,14 @@ class CavitySIMPLE(DiffSchemes):
         # v在y方向中心，x方向需要平均
         v_center = np.zeros((self.nx, self.ny))
         v_center = 0.5 * (self.v[1:-1, :-1] + self.v[1:-1, 1:])
-        print('self.u')
-        print(self.u[50:150])
-        print('self.p')
-        print(self.p)
-        print('the reference')
-        print(self.p[100,100])
+        with np.printoptions(precision=2, suppress=False, threshold=np.inf):
+            print('self.u')
+            print(self.u[100,-20:])
+            print(self.u[-3:,-20:])
+            print('self.v')
+            print(self.v[-3:,-20:])
+            # print('self.p')
+            # print(self.p)
+            print('the reference')
+            print(self.p[100,100])
         return u_center, v_center, self.p

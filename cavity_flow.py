@@ -29,7 +29,7 @@ max_iter = 4000
 tol = 1e-6
 tune = False
 
-# 初始化求解器
+# solver definition
 cavity = CavitySIMPLE(
     name="CavityFlow",
     dt=dt,
@@ -55,18 +55,17 @@ u, v, p = cavity.get_center_velocity()
 
 # print(cavity.u)
 
-x = np.linspace(0.5/(nx), 1-0.5/(nx), nx)  # 控制体中心x坐标
-y = np.linspace(0.5/(ny), 1-0.5/(ny), ny)  # 控制体中心y坐标
-X, Y = np.meshgrid(x, y, indexing='ij')  # 创建网格坐标
+x = np.linspace(0.5/(nx), 1-0.5/(nx), nx)  # x of principle nodes
+y = np.linspace(0.5/(ny), 1-0.5/(ny), ny)  # y of principle nodes
+X, Y = np.meshgrid(x, y, indexing='ij')  # mesh
 speed = np.sqrt(u**2 + v**2)
 
-# 创建绘图区域
+
 plt.figure(figsize=(12, 5))
 
-# 流线图 - 左子图
+# left: stream plot
 plt.subplot(1, 2, 1)
-# 绘制流线图
-# u.shape = (nx,ny), v.shape = (nx,ny)
+# plot streamline
 stream = plt.streamplot(X.T, Y.T, u.T, v.T, 
                density=3, color=speed.T, linewidth=1, arrowsize=1,cmap='jet')
 plt.title('Streamlines')
@@ -75,11 +74,11 @@ plt.xlabel('x')
 plt.ylabel('y')
 plt.xlim(0, 1)
 plt.ylim(0, 1)
-plt.gca().set_aspect('equal')  # 确保坐标轴比例相等
+plt.gca().set_aspect('equal')  # ensure same proportion of axes
 
-# 压力图 - 右子图
+# right: pressure
 plt.subplot(1, 2, 2)
-# 绘制压力云图
+# pressure contour, 20 the density
 contour = plt.contourf(X, Y, p, 20, cmap='coolwarm')
 plt.colorbar(contour, label='Pressure')
 plt.title('Pressure Contour')
@@ -87,7 +86,7 @@ plt.xlabel('x')
 plt.ylabel('y')
 plt.xlim(0, 1)
 plt.ylim(0, 1)
-plt.gca().set_aspect('equal')  # 确保坐标轴比例相等
+plt.gca().set_aspect('equal')  # ensure same proportion of axes
 
 plt.tight_layout()
 plt.savefig(file_path)

@@ -114,7 +114,6 @@ class CavitySIMPLE(DiffSchemes):
         self.p_prime_r[-1] = self.p_prime[-1]
         return
 
-    # TODO: fix the viscosity related terms, 5uij / (oters) = 0.5 but 1, why?
     def solve_momentum_u_star(self, uworder=1, iter_u=50):
         """solve u-momentum equation"""
         self.u_star = np.copy(self.u)  # initialize u_star
@@ -185,36 +184,7 @@ class CavitySIMPLE(DiffSchemes):
             if diff < self.tol:
                 # print('break by tol')
                 break
-        def checking():
-            print('equation')   # converged, ~1
-            print(np.mean(
-                self.u_star[50,-2] / ((
-                                        a_e[49,-1] * value_old[51,-2] + 
-                                        a_w[49,-1] * value_old[49,-2] +
-                                        a_n[49,-1] * value_old[50,-1] +
-                                        a_s[49,-1] * value_old[50,-3] +
-                                        dP[49,-1] + a_hat[49,-1] +
-                                        self.dx * self.dy * self.u[50,-2] / self.dt
-                                        ) / (a_p[49,-1] + 1e-12) )
-            ))
-            print('p')          # the center value at lower bound, print 500
-            print(a_p[49,0])    
-            print('e,w,n,s')    # lower bound, print 100,100,100,200
-            print(a_e[49,0],a_w[49,0],a_n[49,0],a_s[49,0])
-            print('dp')
-            print(dP[49,-20])
-            print('u comp e,w,n,s')     # ~10^2
-            print(a_e[49,-20] * value_old[51,-21],
-                  a_w[49,-20] * value_old[49,-21],
-                  a_n[49,-20] * value_old[50,-20],
-                  a_s[49,-20] * value_old[50,-22])
-            print('source')             # ~10^(-1)
-            print(dP[49,-1] + a_hat[49,-1] +
-                    self.dx * self.dy * self.u[50,-1] / self.dt)
-            # print('coef frac')
-            # print((a_p[49,-20] - self.dx * self.dy / self.dt) /
-            #       (a_e[49,-20] + a_w[49,-20] + a_n[49,-20] + a_s[49,-20]))
-        # checking()
+        
         # nx-1,ny
         return a_p
 
@@ -287,49 +257,10 @@ class CavitySIMPLE(DiffSchemes):
             diff = np.max(np.abs(self.v_star[1:-1,1:-1] - value_old[1:-1,1:-1]))
             if diff < self.tol:
                 break
-        def checking():
-            print('equation')
-            print(np.mean(
-                self.v_star[-10,-20] / ((
-                                        a_e[-9,-19] * value_old[-9,-20] + 
-                                        a_w[-9,-19] * value_old[-11,-20] +
-                                        a_n[-9,-19] * value_old[-10,-19] +
-                                        a_s[-9,-19] * value_old[-10,-21] +
-                                        dP[-9,-19] + a_hat[-9,-19] +
-                                        self.dx * self.dy * self.v[-10,-20] / self.dt
-                                        ) / (a_p[-9,-19] + 1e-12) )
-            ))
-                # (a_n * value_old[1:-1,2:] + 
-                # a_s * value_old[1:-1,:-2] +
-                # a_e * value_old[2:,1:-1] +
-                # a_w * value_old[:-2,1:-1] +
-                # dP + a_hat + 
-                # self.dy * self.dx * self.v[1:-1,1:-1] / self.dt
-                # )
-            print('p')
-            # print(a_p[-10,50])
-            print(np.mean(a_p[0,1:-1]))
-            print('e,w,n,s')
-            # print(a_e[-10,50],a_w[-10,50],a_n[-10,50],a_s[-10,50])
-            print(np.mean(a_w[0,1:-1]))
-            print('dp')
-            print(dP[49,-20])
-            print('u comp e,w,n,s')
-            print(a_e[49,-20] * value_old[49,-21],
-                  a_w[49,-20] * value_old[49,-21],
-                  a_n[49,-20] * value_old[49,-20],
-                  a_s[49,-20] * value_old[49,-22])
-            print('source')
-            print(dP[49,-20] + a_hat[49,-20] +
-                    self.dx * self.dy * self.v[50,-21] / self.dt)
-            # print('coef frac')
-            # print((a_p[49,-20] - self.dx * self.dy / self.dt) /
-            #       (a_e[49,-20] + a_w[49,-20] + a_n[49,-20] + a_s[49,-20]))
-        # checking()
+        
         # nx,ny-1
         return a_p
     
-    # TODO: fix the wrong coefficients of pressure
     def solve_pressure_correction(self, a_p, b_p, iter_p=3000):
         """solve pressure correction equation"""
         # a_p is (nx-1,ny), b_p is (nx,ny-1)
@@ -372,7 +303,6 @@ class CavitySIMPLE(DiffSchemes):
          inv_c_l, inv_c_r, inv_c_u, inv_c_d, 
          inv_c_lu, inv_c_ld, inv_c_ru, inv_c_rd) = get_inv_val(c_p, c_ew, c_ns)
         
-        # print(np.max(np.abs(c_e / c_p)))
         c_hat = -(
             self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
             self.dx * (self.v_star[1:-1,1:] - self.v_star[1:-1,:-1])
@@ -515,20 +445,13 @@ class CavitySIMPLE(DiffSchemes):
 
     def get_center_velocity(self):
         """velocity at cell centers"""
-        # u在x方向中心，y方向需要平均
+        # averaged u values in principle nodes
         u_center = np.zeros((self.nx, self.ny))
         u_center = 0.5 * (self.u[:-1, 1:-1] + self.u[1:, 1:-1])
-        # v在y方向中心，x方向需要平均
+        # averaged v values in principle nodes
         v_center = np.zeros((self.nx, self.ny))
         v_center = 0.5 * (self.v[1:-1, :-1] + self.v[1:-1, 1:])
         with np.printoptions(precision=2, suppress=False, threshold=np.inf):
-            print('self.u')
-            print(self.u[int(self.nx/2),-20:])
-            print(self.u[-3:,-20:])
-            print('self.v')
-            print(self.v[-3:,-20:])
-            # print('self.p')
-            # print(self.p)
             print('the reference')
             print(self.p[int(self.nx/2),int(self.ny/2)])
         return u_center, v_center, self.p

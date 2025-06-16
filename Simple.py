@@ -6,6 +6,7 @@ class CavitySIMPLE(DiffSchemes):
                  max_iter=1000,
                  tol=1e-5,
                  alpha_u=1,
+                 alpha_v=0.1,
                  alpha_p=0.8,
                  **kwargs):
         super().__init__(name, dt, dx, x, t, dy=dy, y=y, **kwargs)
@@ -19,6 +20,7 @@ class CavitySIMPLE(DiffSchemes):
         self.dy = dy
         # lack relaxation factors
         self.alpha_u = alpha_u  # velocity lack relaxation
+        self.alpha_v = alpha_v
         self.alpha_p = alpha_p  # pressure lack relaxation
         
         # mesh
@@ -112,9 +114,8 @@ class CavitySIMPLE(DiffSchemes):
         self.p_prime_r[-1] = self.p_prime[-1]
         return
 
-    # TODO: fix the viscosity, so that we can transfer the influence of the lid to the
-    # domain correctly
-    def solve_momentum_u_star(self, uworder=1, iter_u=100):
+    # TODO: fix the viscosity related terms, 5uij / (oters) = 0.5 but 1, why?
+    def solve_momentum_u_star(self, uworder=1, iter_u=50):
         """solve u-momentum equation"""
         self.u_star = np.copy(self.u)  # initialize u_star
         
@@ -146,54 +147,78 @@ class CavitySIMPLE(DiffSchemes):
             gamma_uy[:,0] = 0.5 * alpha_uym[:,0] * (self.u[1:,1] - self.u[1:,2])
             gamma_uy[:,-1] = 0.5 * alpha_uyp[:,-1] * (self.u[1:,-1] - self.u[1:,-2])
             gamma_uy[:,-2] = 0.5 * alpha_uyp[:,-2] * (self.u[1:,-2] - self.u[1:,-3])
-            
-        # discretization coefficients (nx-1,ny for n,s; nx,ny for e,w, nx-1,ny for p,hat)
-        a_w = self.dy * (alpha_uxp[:-1] + 1 / (self.Re * self.dx))
-        a_e = self.dy * (-alpha_uxm[1:] + 1 / (self.Re * self.dx))
+        
+        # discretization coefficients (nx-1,ny for n,s,e,w,p,hat)
+        a_w = self.dy * (alpha_uxp[:-2] + 1 / (self.Re * self.dx))
+        a_e = self.dy * (-alpha_uxm[1:-1] + 1 / (self.Re * self.dx))
         a_s = self.dx * (alpha_uyp[:-1,:-1] + 1 / (self.Re * self.dy))
         a_n = self.dx * (-alpha_uym[:-1,1:] + 1 / (self.Re * self.dy))
         a_n[:,-1] *= 2
         a_s[:,0] *= 2
+    
         a_p = (self.dx * self.dy / self.dt) +\
                 self.dy * (alpha_uxp[1:-1] - alpha_uxm[:-2] + (2 / (self.Re * self.dx))) +\
                 self.dx * (alpha_uyp[:-1,1:] - alpha_uym[:-1,:-1] + (2 / (self.Re * self.dy)))
         a_p[:,-1] += self.dx / (self.Re * self.dy)
         a_p[:,0] += self.dx / (self.Re * self.dy)
+        
         a_hat = self.dy * (gamma_ux[1:-1] - gamma_ux[:-2]) +\
                 self.dx * (gamma_uy[:-1,1:] - gamma_uy[:-1,:-1])
-        # print('uxp')
-        # print(np.max(alpha_uyp[:-1,:-1])/ (1 / (self.Re * self.dy)))
-        # print('uxm')
-        # print(np.max(-alpha_uym[:-1,1:])/ (1 / (self.Re * self.dy)))
-        # print(np.max(a_n/a_p))
-        # if np.min(a_n / a_p) < 0:
-        #     print(np.min(a_n / a_p))
-        #     raise ValueError('positive coefficient rule was ruined')
         # pressure gradient(nx-1,ny)
         dP = -(self.p[1:] - self.p[:-1]) * self.dy
-        
         value_old = np.empty_like(self.u_star)
+        u_source = self.u[1:-1,1:-1]
         for _ in range(iter_u):
             # update
             np.copyto(value_old,self.u_star)
-            self.u_star[1:-1,1:-1] = (self.alpha_u * (
-                                    a_e[:-1] * value_old[2:,1:-1] + 
-                                    a_w[:-1] * value_old[:-2,1:-1] +
-                                    a_n * value_old[1:-1,2:] +
-                                    a_s * value_old[1:-1,:-2] +
-                                    dP + a_hat
-                                    ) + 
-                                    (1 - self.alpha_u) * self.dx * self.dy * value_old[1:-1,1:-1] / self.dt 
-                                ) / (a_p + 1e-12)
+            self.u_star[1:-1,1:-1] = self.alpha_u * (
+                (a_e * value_old[2:,1:-1] + 
+                a_w * value_old[:-2,1:-1] +
+                a_n * value_old[1:-1,2:] +
+                a_s * value_old[1:-1,:-2] +
+                dP + a_hat + 
+                self.dy * self.dx * u_source / self.dt
+                ) + (1 - self.alpha_u) / self.alpha_u * a_p * value_old[1:-1,1:-1] 
+            ) / (a_p + 1e-12)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
             diff = np.max(np.abs(self.u_star[1:-1,1:-1] - value_old[1:-1,1:-1]))
-            # if diff < self.tol:
-            #     return a_e, a_w
-        # print(np.max(a_n/ (self.dx / (self.Re * self.dy))))
-        # nx,ny
-        return a_e, a_w
+            if diff < self.tol:
+                # print('break by tol')
+                break
+        def checking():
+            print('equation')   # converged, ~1
+            print(np.mean(
+                self.u_star[50,-2] / ((
+                                        a_e[49,-1] * value_old[51,-2] + 
+                                        a_w[49,-1] * value_old[49,-2] +
+                                        a_n[49,-1] * value_old[50,-1] +
+                                        a_s[49,-1] * value_old[50,-3] +
+                                        dP[49,-1] + a_hat[49,-1] +
+                                        self.dx * self.dy * self.u[50,-2] / self.dt
+                                        ) / (a_p[49,-1] + 1e-12) )
+            ))
+            print('p')          # the center value at lower bound, print 500
+            print(a_p[49,0])    
+            print('e,w,n,s')    # lower bound, print 100,100,100,200
+            print(a_e[49,0],a_w[49,0],a_n[49,0],a_s[49,0])
+            print('dp')
+            print(dP[49,-20])
+            print('u comp e,w,n,s')     # ~10^2
+            print(a_e[49,-20] * value_old[51,-21],
+                  a_w[49,-20] * value_old[49,-21],
+                  a_n[49,-20] * value_old[50,-20],
+                  a_s[49,-20] * value_old[50,-22])
+            print('source')             # ~10^(-1)
+            print(dP[49,-1] + a_hat[49,-1] +
+                    self.dx * self.dy * self.u[50,-1] / self.dt)
+            # print('coef frac')
+            # print((a_p[49,-20] - self.dx * self.dy / self.dt) /
+            #       (a_e[49,-20] + a_w[49,-20] + a_n[49,-20] + a_s[49,-20]))
+        # checking()
+        # nx-1,ny
+        return a_p
 
-    def solve_momentum_v_star(self, uworder=1, iter_v=100):
+    def solve_momentum_v_star(self, uworder=1, iter_v=50):
         """solve momentum equation"""
         self.v_star = np.copy(self.v)  # initialize u_star
         # upwind coefficients
@@ -222,18 +247,22 @@ class CavitySIMPLE(DiffSchemes):
             gamma_vx[-1] = 0.5 * alpha_vxp[-1] * (self.v[-1,1:] - self.v[-2,1:])
             gamma_vx[-2] = 0.5 * alpha_vxp[-2] * (self.v[-2,1:] - self.v[-3,1:])
             
-        # discretization coefficients (nx,ny-1 for w,e; nx,ny for n,s, nx,ny-1 for p,hat)
-        a_s = self.dx * (alpha_vyp[:,:-1] + 1 / (self.Re * self.dy))
-        a_n = self.dx * (-alpha_vym[:,1:] + 1 / (self.Re * self.dy))
+        # discretization coefficients (nx,ny-1 for w,e,n,s,hat; nx,ny for p)
+        a_s = self.dx * (alpha_vyp[:,:-2] + 1 / (self.Re * self.dy))
+        a_n = self.dx * (-alpha_vym[:,1:-1] + 1 / (self.Re * self.dy))
         a_w = self.dy * (alpha_vxp[:-1,:-1] + 1 / (self.Re * self.dx))
         a_e = self.dy * (-alpha_vxm[1:,:-1] + 1 / (self.Re * self.dx))
         a_w[0] *= 2
-        a_e[0] *= 2
+        a_e[-1] *= 2
+        
         a_p = (self.dy * self.dx / self.dt) +\
                 self.dx * (alpha_vyp[:,1:-1] - alpha_vym[:,:-2] + (2 / (self.Re * self.dy))) +\
                 self.dy * (alpha_vxp[1:,:-1] - alpha_vxm[:-1,:-1] + (2 / (self.Re * self.dx)))
-        a_p[0,:] += self.dy / (self.Re * self.dx)
-        a_p[-1,:] += self.dy / (self.Re * self.dx)
+        # a_p = (self.dy * self.dx / self.dt) +\
+        #         a_e + a_w + a_n + a_s
+        a_p[0] += self.dy / (self.Re * self.dx)
+        a_p[-1] += self.dy / (self.Re * self.dx)
+        
         a_hat = self.dx * (gamma_vy[:,1:-1] - gamma_vy[:,:-2]) +\
                 self.dy * (gamma_vx[1:,:-1] - gamma_vx[:-1,:-1])
         # print(np.max(np.abs(a_p))/np.max(np.abs(a_n)))
@@ -241,154 +270,227 @@ class CavitySIMPLE(DiffSchemes):
         dP = -(self.p[:,1:] - self.p[:,:-1]) * self.dx
         
         value_old = np.empty_like(self.v_star)
+        v_source = self.v[1:-1,1:-1]
         for _ in range(iter_v):
             # update
             np.copyto(value_old, self.v_star)
-            self.v_star[1:-1,1:-1] = (self.alpha_u * (
-                                    a_n[:,:-1] * value_old[1:-1,2:] + 
-                                    a_s[:,:-1] * value_old[1:-1,:-2] +
-                                    a_e * value_old[2:,1:-1] +
-                                    a_w * value_old[:-2,1:-1] +
-                                    dP + a_hat
-                                    ) + 
-                                    (1 - self.alpha_u) * self.dy * self.dx * value_old[1:-1,1:-1] / self.dt 
-                                    ) / (a_p + 1e-12)
+            self.v_star[1:-1,1:-1] = self.alpha_v * (
+                (a_n * value_old[1:-1,2:] + 
+                a_s * value_old[1:-1,:-2] +
+                a_e * value_old[2:,1:-1] +
+                a_w * value_old[:-2,1:-1] +
+                dP + a_hat + 
+                self.dy * self.dx * v_source / self.dt
+                ) + (1 - self.alpha_v) / self.alpha_v * a_p * value_old[1:-1, 1:-1] 
+            ) / (a_p + 1e-12)
             self.apply_boundary_conditions_star()  # ensure boundary conditions are applied
             diff = np.max(np.abs(self.v_star[1:-1,1:-1] - value_old[1:-1,1:-1]))
-            # if diff < self.tol:
-            #     return a_n, a_s
-        # nx,ny
-        return a_n, a_s
+            if diff < self.tol:
+                break
+        def checking():
+            print('equation')
+            print(np.mean(
+                self.v_star[-10,-20] / ((
+                                        a_e[-9,-19] * value_old[-9,-20] + 
+                                        a_w[-9,-19] * value_old[-11,-20] +
+                                        a_n[-9,-19] * value_old[-10,-19] +
+                                        a_s[-9,-19] * value_old[-10,-21] +
+                                        dP[-9,-19] + a_hat[-9,-19] +
+                                        self.dx * self.dy * self.v[-10,-20] / self.dt
+                                        ) / (a_p[-9,-19] + 1e-12) )
+            ))
+                # (a_n * value_old[1:-1,2:] + 
+                # a_s * value_old[1:-1,:-2] +
+                # a_e * value_old[2:,1:-1] +
+                # a_w * value_old[:-2,1:-1] +
+                # dP + a_hat + 
+                # self.dy * self.dx * self.v[1:-1,1:-1] / self.dt
+                # )
+            print('p')
+            # print(a_p[-10,50])
+            print(np.mean(a_p[0,1:-1]))
+            print('e,w,n,s')
+            # print(a_e[-10,50],a_w[-10,50],a_n[-10,50],a_s[-10,50])
+            print(np.mean(a_w[0,1:-1]))
+            print('dp')
+            print(dP[49,-20])
+            print('u comp e,w,n,s')
+            print(a_e[49,-20] * value_old[49,-21],
+                  a_w[49,-20] * value_old[49,-21],
+                  a_n[49,-20] * value_old[49,-20],
+                  a_s[49,-20] * value_old[49,-22])
+            print('source')
+            print(dP[49,-20] + a_hat[49,-20] +
+                    self.dx * self.dy * self.v[50,-21] / self.dt)
+            # print('coef frac')
+            # print((a_p[49,-20] - self.dx * self.dy / self.dt) /
+            #       (a_e[49,-20] + a_w[49,-20] + a_n[49,-20] + a_s[49,-20]))
+        # checking()
+        # nx,ny-1
+        return a_p
+    
     # TODO: fix the wrong coefficients of pressure
-    def solve_pressure_correction(self, a_e, a_w, b_n, b_s, iter_p=1000):
+    def solve_pressure_correction(self, a_p, b_p, iter_p=3000):
         """solve pressure correction equation"""
+        # a_p is (nx-1,ny), b_p is (nx,ny-1)
+        # self.u is (nx+1,ny+2) with virtual nodes, self.v is (nx+2,ny+1) with virtual nodes
         # w,e,u,d with BDC (nx,ny)
-        # p_u, p_d, p_l, p_r = get_transitioned()
         self.get_transitioned()
-        # coefficients (nx,ny)
-        c_e = self.dy ** 2 / a_e
-        c_w = self.dy ** 2 / a_w
-        c_n = self.dx ** 2 / b_n
-        c_s = self.dx ** 2 / b_s
-        c_p = c_e + c_w + c_n + c_s
-        inv_c_p = 1.0 / (c_p + 1e-12)
-        inv_c_l = 1. / ((c_e+c_n+c_s)[0,1:-1] + 1e-12)
-        inv_c_r = 1. / ((c_w+c_n+c_s)[-1,1:-1] + 1e-12)
-        inv_c_u = 1. / ((c_w+c_s+c_e)[1:-1,-1] + 1e-12)
-        inv_c_d = 1. / ((c_w+c_n+c_e)[1:-1,0] + 1e-12)
-        inv_c_lu = 1. / ((c_e+c_s)[0,-1] + 1e-12)
-        inv_c_ld = 1. / ((c_e+c_n)[0,0] + 1e-12)
-        inv_c_ru = 1. / ((c_w+c_s)[-1,-1] + 1e-12)
-        inv_c_rd = 1. / ((c_w+c_n)[-1,0] + 1e-12)
+        # coefficients
+        # (nx-1,ny)
+        c_ew = self.dy ** 2 / a_p
+        # (nx,ny-1)
+        c_ns = self.dx ** 2 / b_p
+        # (nx-2,ny-2)
+        c_p = (c_ew[1:,1:-1] +
+               c_ew[:-1,1:-1] +
+               c_ns[1:-1,1:] +
+               c_ns[1:-1,:-1])
+        
+        def get_inv_val(c_p, c_ew, c_ns):
+            inv_c_p = 1. / (c_p + 1e-12)
+            inv_c_l = 1. / ((c_ew[0,1:-1] +
+                            c_ns[0,1:] + 
+                            c_ns[0,:-1]) + 1e-12)
+            inv_c_r = 1. / ((c_ew[-1,1:-1] +
+                             c_ns[-1,1:] +
+                             c_ns[-1,:-1]) + 1e-12)
+            inv_c_u = 1. / ((c_ns[1:-1,-1] +
+                            c_ew[:-1,-1] +
+                            c_ew[1:,-1]) + 1e-12)
+            inv_c_d = 1. / ((c_ns[1:-1,0] +
+                            c_ew[:-1,0] +
+                            c_ew[1:,0]) + 1e-12)
+            inv_c_lu = 1. / ((c_ew[0,-1] + c_ns[0,-1]) + 1e-12)
+            inv_c_ld = 1. / ((c_ew[0,0] + c_ns[0,0]) + 1e-12)
+            inv_c_ru = 1. / ((c_ew[-1,-1] + c_ns[-1,-1]) + 1e-12)
+            inv_c_rd = 1. / ((c_ew[-1,0] + c_ns[-1,0]) + 1e-12)
+            
+            return (inv_c_p, inv_c_l, inv_c_r, inv_c_u, inv_c_d, 
+                    inv_c_lu, inv_c_ld, inv_c_ru, inv_c_rd)
+        (inv_c_p,
+         inv_c_l, inv_c_r, inv_c_u, inv_c_d, 
+         inv_c_lu, inv_c_ld, inv_c_ru, inv_c_rd) = get_inv_val(c_p, c_ew, c_ns)
+        
         # print(np.max(np.abs(c_e / c_p)))
         c_hat = -(
             self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
             self.dx * (self.v_star[1:-1,1:] - self.v_star[1:-1,:-1])
         )
+        
         value_old = np.empty_like(self.p_prime)
-        self.chat = np.max(np.abs(c_hat))
+        self.chat = np.sum(np.abs(c_hat))
         for _ in range(iter_p):
             np.copyto(value_old, self.p_prime)
             # jacobian p_prime update with [100,100] the reference
-            # inner points
-            # overall update
-            self.p_prime = inv_c_p * (
-                c_e * self.p_prime_r +
-                c_w * self.p_prime_l +
-                c_n * self.p_prime_u +
-                c_s * self.p_prime_d +
-                c_hat
+            # inner points (nx-2,ny-2)
+            self.p_prime[1:-1,1:-1] = inv_c_p * (
+                c_ew[1:,1:-1] * self.p_prime_r[1:-1,1:-1] +
+                c_ew[:-1,1:-1] * self.p_prime_l[1:-1,1:-1] +
+                c_ns[1:-1,1:] * self.p_prime_u[1:-1,1:-1] +
+                c_ns[1:-1,:-1] * self.p_prime_d[1:-1,1:-1] +
+                c_hat[1:-1,1:-1]
             )
             # boundary points (edge)
             # left edge
             self.p_prime[0,1:-1] = inv_c_l * (
-                c_e[0,1:-1] * self.p_prime_r[0,1:-1] +
-                c_n[0,1:-1] * self.p_prime_u[0,1:-1] +
-                c_s[0,1:-1] * self.p_prime_d[0,1:-1] +
+                c_ew[0,1:-1] * self.p_prime_r[0,1:-1] +
+                c_ns[0,1:] * self.p_prime_u[0,1:-1] +
+                c_ns[0,:-1] * self.p_prime_d[0,1:-1] +
                 c_hat[0,1:-1]
             )
             # right edge
             self.p_prime[-1,1:-1] = inv_c_r * (
-                c_w[-1,1:-1] * self.p_prime_l[-1,1:-1] +
-                c_n[-1,1:-1] * self.p_prime_u[-1,1:-1] +
-                c_s[-1,1:-1] * self.p_prime_d[-1,1:-1] +
+                c_ew[-1,1:-1] * self.p_prime_l[-1,1:-1] +
+                c_ns[-1,1:] * self.p_prime_u[-1,1:-1] +
+                c_ns[-1,:-1] * self.p_prime_d[-1,1:-1] +
                 c_hat[-1,1:-1]
             )
             # lower edge
             self.p_prime[1:-1,0] = inv_c_d * (
-                c_w[1:-1,0] * self.p_prime_l[1:-1,0] +
-                c_n[1:-1,0] * self.p_prime_u[1:-1,0] +
-                c_e[1:-1,0] * self.p_prime_r[1:-1,0] +
+                c_ns[1:-1,0] * self.p_prime_u[1:-1,0] +
+                c_ew[:-1,0] * self.p_prime_l[1:-1,0] +
+                c_ew[1:,0] * self.p_prime_r[1:-1,0] +
                 c_hat[1:-1,0]
             )
             # upper edge
             self.p_prime[1:-1,-1] = inv_c_u * (
-                c_w[1:-1,-1] * self.p_prime_l[1:-1,-1] +
-                c_s[1:-1,-1] * self.p_prime_d[1:-1,-1] +
-                c_e[1:-1,-1] * self.p_prime_r[1:-1,-1] +
+                c_ns[1:-1,-1] * self.p_prime_d[1:-1,-1] +
+                c_ew[:-1,-1] * self.p_prime_l[1:-1,-1] +
+                c_ew[1:,-1] * self.p_prime_r[1:-1,-1] +
                 c_hat[1:-1,-1]
             )
             
             # boundary points (corner)
             self.p_prime[0,0] = inv_c_ld * (
-                c_e[0,0] * self.p_prime_r[0,0] +
-                c_n[0,0] * self.p_prime_u[0,0] +
+                c_ew[0,0] * self.p_prime_r[0,0] +
+                c_ns[0,0] * self.p_prime_u[0,0] +
                 c_hat[0,0]
             )
             self.p_prime[0,-1] = inv_c_lu * (
-                c_e[0,-1] * self.p_prime_r[0,-1] +
-                c_s[0,-1] * self.p_prime_d[0,-1] +
+                c_ew[0,-1] * self.p_prime_r[0,-1] +
+                c_ns[0,-1] * self.p_prime_d[0,-1] +
                 c_hat[0,-1]
             )
             self.p_prime[-1,0] = inv_c_rd * (
-                c_w[-1,0] * self.p_prime_l[-1,0] +
-                c_n[-1,0] * self.p_prime_u[-1,0] +
+                c_ew[-1,0] * self.p_prime_l[-1,0] +
+                c_ns[-1,0] * self.p_prime_u[-1,0] +
                 c_hat[-1,0]
             )
             self.p_prime[-1,-1] = inv_c_ru * (
-                c_w[-1,-1] * self.p_prime_l[-1,-1] +
-                c_s[-1,-1] * self.p_prime_d[-1,-1] +
+                c_ew[-1,-1] * self.p_prime_l[-1,-1] +
+                c_ns[-1,-1] * self.p_prime_d[-1,-1] +
                 c_hat[-1,-1]
             )
-            self.p_prime[100,100] = 0
+            self.p_prime[int(self.nx/2),int(self.ny/2)] = 0
             # w,e,u,d with BDC (nx,ny)
             self.get_transitioned()
             # check inner convergence
             res = np.sum(np.abs(self.p_prime - value_old))
             self.res = res
-            if res < 1e-7:
+            if res < 1e-5:
                 break
         return
     
-    def correct_velocity_pressure(self, a_e, b_n):
+    def correct_velocity_pressure(self, a_p, b_p):
         """modify velocity and pressure based on pressure correction"""
         # pressure correction with relaxation
         self.p += self.alpha_p * self.p_prime
         # modify u with relaxation
         # print(self.u_star.shape, self.p_prime.shape, a_e.shape)
-        self.u[1:-1,1:-1] = (self.u_star[1:-1,1:-1] + self.dy *\
-            (self.p_prime[:-1] - self.p_prime[1:]) / a_e[:-1])
+        self.u[1:-1,1:-1] = (self.u_star[1:-1,1:-1] - self.dy *\
+            (self.p_prime[1:] - self.p_prime[:-1]) / a_p)
         # modify v with relaxation
         # print(self.v_star.shape, self.v.shape, a_e.shape, b_n.shape)
-        self.v[1:-1,1:-1] = (self.v_star[1:-1,1:-1] + self.dx *\
-            (self.p_prime[:,:-1] - self.p_prime[:,1:]) / b_n[:,:-1])
+        self.v[1:-1,1:-1] = (self.v_star[1:-1,1:-1] - self.dx *\
+            (self.p_prime[:,1:] - self.p_prime[:,:-1]) / b_p)
         self.apply_boundary_conditions()  # apply BDC
         
-    def solve(self, uworder=1):
+    def solve(self, uworder=1, tune=True):
         """SIMPLE main loop"""
+        if tune:
+            prt = 20
+        else:
+            prt = 200
         # BDC
         self.apply_boundary_conditions()
         self.apply_boundary_conditions_star()
+        
+        print('time vs Re')
+        print(
+            (self.dx * self.dy / self.dt) * self.Re
+        )
+        
         for iter in range(self.max_iter):
             # velocity old values
             u_old = np.copy(self.u)
             v_old = np.copy(self.v)
-    
+            
             # SIMPLE steps
-            a_e, a_w = self.solve_momentum_u_star(uworder=uworder)        # solve u*
-            b_n, b_s = self.solve_momentum_v_star(uworder=uworder)         # solve v*
-            self.solve_pressure_correction(a_e, a_w, b_n, b_s) # solve p'
-            self.correct_velocity_pressure(a_e, b_n)# correct u,v,p
+            a_p = self.solve_momentum_u_star(uworder=uworder)        # solve u*
+            b_p = self.solve_momentum_v_star(uworder=uworder)         # solve v*
+            self.solve_pressure_correction(a_p, b_p) # solve p'
+            self.correct_velocity_pressure(a_p, b_p)# correct u,v,p
             
             # BDC
             self.apply_boundary_conditions()
@@ -404,10 +506,10 @@ class CavitySIMPLE(DiffSchemes):
             v_res = np.max(np.abs(self.v - v_old))
             
             
-            if iter % 200 == 0:
-                print(f"Iter {iter}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
+            if (iter+1) % prt == 0:
+                print(f"Iter {iter+1}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
             
-            if (u_res < self.tol) and (v_res < self.tol) and (self.chat < self.tol) and (self.res < self.tol):
+            if (u_res < self.tol) and (v_res < self.tol):
                 print(f"Converged at iteration {iter}")
                 break
 
@@ -421,12 +523,12 @@ class CavitySIMPLE(DiffSchemes):
         v_center = 0.5 * (self.v[1:-1, :-1] + self.v[1:-1, 1:])
         with np.printoptions(precision=2, suppress=False, threshold=np.inf):
             print('self.u')
-            print(self.u[100,-20:])
+            print(self.u[int(self.nx/2),-20:])
             print(self.u[-3:,-20:])
             print('self.v')
             print(self.v[-3:,-20:])
             # print('self.p')
             # print(self.p)
             print('the reference')
-            print(self.p[100,100])
+            print(self.p[int(self.nx/2),int(self.ny/2)])
         return u_center, v_center, self.p

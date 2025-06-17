@@ -1,5 +1,8 @@
 from Diff_schme import DiffSchemes
 import numpy as np
+import pyamg
+from scipy.sparse import lil_matrix
+from scipy.sparse import coo_matrix
 
 class CavitySIMPLE(DiffSchemes):
     def __init__(self, name, dt, dx, x, t, dy, y, Re, U_top, 
@@ -114,12 +117,109 @@ class CavitySIMPLE(DiffSchemes):
         self.p_prime_r[-1] = self.p_prime[-1]
         return
 
+    def get_inv_val(self, c_p, c_ew, c_ns):
+        inv_c_p = 1. / (c_p + 1e-12)
+        inv_c_l = 1. / ((c_ew[0,1:-1] +
+                        c_ns[0,1:] + 
+                        c_ns[0,:-1]) + 1e-12)
+        inv_c_r = 1. / ((c_ew[-1,1:-1] +
+                            c_ns[-1,1:] +
+                            c_ns[-1,:-1]) + 1e-12)
+        inv_c_u = 1. / ((c_ns[1:-1,-1] +
+                        c_ew[:-1,-1] +
+                        c_ew[1:,-1]) + 1e-12)
+        inv_c_d = 1. / ((c_ns[1:-1,0] +
+                        c_ew[:-1,0] +
+                        c_ew[1:,0]) + 1e-12)
+        inv_c_lu = 1. / ((c_ew[0,-1] + c_ns[0,-1]) + 1e-12)
+        inv_c_ld = 1. / ((c_ew[0,0] + c_ns[0,0]) + 1e-12)
+        inv_c_ru = 1. / ((c_ew[-1,-1] + c_ns[-1,-1]) + 1e-12)
+        inv_c_rd = 1. / ((c_ew[-1,0] + c_ns[-1,0]) + 1e-12)
+        
+        return (inv_c_p, inv_c_l, inv_c_r, inv_c_u, inv_c_d, 
+                inv_c_lu, inv_c_ld, inv_c_ru, inv_c_rd)
+
+    def build_A_matrix(self, c_ew, c_ns):
+        """
+        构建压力修正方程的稀疏矩阵 A(五点差分形式)
+        输入：
+            c_ew: (nx-1, ny) —— 东西向导热系数
+            c_ns: (nx, ny-1) —— 南北向导热系数
+        返回：
+            A: (nx*ny, nx*ny) 稀疏矩阵
+        """
+        nx, ny = c_ns.shape
+        N = nx * ny
+
+        def idx(i, j):
+            return i * ny + j
+
+        # 网格内所有点坐标
+        I, J = np.meshgrid(np.arange(nx), np.arange(ny), indexing='ij')
+        center = idx(I, J).flatten()
+
+        data = []
+        row = []
+        col = []
+
+        # 对角线项
+        diag = np.zeros((nx, ny))
+        if nx > 1:
+            diag += np.pad(c_ew[:-1, :], ((1, 0), (0, 0)), 'constant')
+            diag += np.pad(c_ew, ((0, 1), (0, 0)), 'constant')
+        if ny > 1:
+            diag += np.pad(c_ns[:, :-1], ((0, 0), (1, 0)), 'constant')
+            diag += np.pad(c_ns, ((0, 0), (0, 1)), 'constant')
+
+        data.append(diag.flatten())
+        row.append(center)
+        col.append(center)
+
+        # 左邻点（西）
+        if nx > 1:
+            left = idx(I[1:], J[1:]).flatten()
+            center_left = idx(I[1:], J[1:]-1).flatten()
+            row.append(center_left)
+            col.append(left)
+            data.append((-c_ew[:-1, 1:]).flatten())
+
+        # 右邻点（东）
+        if nx > 1:
+            right = idx(I[:-1], J[:-1]).flatten()
+            center_right = idx(I[:-1], J[:-1]+1).flatten()
+            row.append(center_right)
+            col.append(right)
+            data.append((-c_ew[:, :-1]).flatten())
+
+        # 下邻点（南）
+        if ny > 1:
+            down = idx(I[1:-1], J[:-1]).flatten()
+            center_down = idx(I[1:-1], J[1:]).flatten()
+            row.append(center_down)
+            col.append(down)
+            data.append((-c_ns[1:-1, :-1]).flatten())
+
+        # 上邻点（北）
+        if ny > 1:
+            up = idx(I[1:-1], J[1:]).flatten()
+            center_up = idx(I[1:-1], J[:-1]).flatten()
+            row.append(center_up)
+            col.append(up)
+            data.append((-c_ns[1:-1, :-1]).flatten())
+
+        A = coo_matrix((np.concatenate(data), (np.concatenate(row), np.concatenate(col))),
+                    shape=(N, N)).tocsr()
+        return A
+    
     def solve_momentum_u_star(self, uworder=1, iter_u=50):
         """solve u-momentum equation"""
+        # the domain shape is (nx,ny), the same as the shape of self.p
+        # the self.u shape is (nx+1,ny+2), the virtual nodes out of the domain with fixed boundary value
+        # the self.v shape is (nx+2,ny+1), the virtual nodes out of the domain with fixed boundary value
         self.u_star = np.copy(self.u)  # initialize u_star
         
         # upwind coefficients
-        u_avr_x = np.empty((self.nx, self.ny))
+        # (nx,ny)
         u_avr_x = (self.u[:-1,1:-1] + self.u[1:,1:-1]) / 2 
         
         alpha_uxp = np.maximum(u_avr_x, 0)     # nx, ny
@@ -180,7 +280,7 @@ class CavitySIMPLE(DiffSchemes):
         """solve momentum equation"""
         self.v_star = np.copy(self.v)  # initialize u_star
         # upwind coefficients
-        v_avr_y = np.empty((self.nx, self.ny))
+        # (nx,ny)
         v_avr_y = (self.v[1:-1,:-1] + self.v[1:-1,1:]) / 2 
         
         alpha_vyp = np.maximum(v_avr_y, 0)     # nx, ny
@@ -240,7 +340,7 @@ class CavitySIMPLE(DiffSchemes):
         # nx,ny-1
         return a_p
     
-    def solve_pressure_correction(self, a_p, b_p, iter_p=3000):
+    def solve_pressure_correction(self, a_p, b_p, iter_p=10000):
         """solve pressure correction equation"""
         # a_p is (nx-1,ny), b_p is (nx,ny-1)
         # self.u is (nx+1,ny+2) with virtual nodes, self.v is (nx+2,ny+1) with virtual nodes
@@ -357,10 +457,216 @@ class CavitySIMPLE(DiffSchemes):
             # check inner convergence
             res = np.sum(np.abs(self.p_prime - value_old))
             self.res = res
-            if res < 1e-5:
+            mxm = np.max(np.abs(self.p_prime))
+            if (res / mxm) < 1e-5:
+                print('converged by tol')
                 break
         return
     
+    def solve_pressure_correction_(self, a_p, b_p, iter_p=10000):
+        """solve pressure correction equation"""
+        # a_p is (nx-1,ny), b_p is (nx,ny-1)
+        # self.u is (nx+1,ny+2) with virtual nodes, self.v is (nx+2,ny+1) with virtual nodes
+        # w,e,u,d with BDC (nx,ny)
+        
+        # coefficients
+        # (nx-1,ny)
+        c_ew = self.dy ** 2 / a_p
+        # (nx,ny-1)
+        c_ns = self.dx ** 2 / b_p
+        # (nx-2,ny-2)
+        c_p = (c_ew[1:,1:-1] +
+               c_ew[:-1,1:-1] +
+               c_ns[1:-1,1:] +
+               c_ns[1:-1,:-1])
+        
+        (inv_c_p,
+         inv_c_l, inv_c_r, inv_c_u, inv_c_d, 
+         inv_c_lu, inv_c_ld, inv_c_ru, inv_c_rd) = self.get_inv_val(c_p, c_ew, c_ns)
+
+        c_hat = -(
+            self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
+            self.dx * (self.v_star[1:-1,1:] - self.v_star[1:-1,:-1])
+        )
+        
+        value_old = np.empty_like(self.p_prime)
+        self.chat = np.sum(np.abs(c_hat))
+        for _ in range(iter_p):
+            np.copyto(value_old, self.p_prime)
+            # jacobian p_prime update with [100,100] the reference
+            # inner points (nx-2,ny-2)
+            self.p_prime[1:-1,1:-1] = inv_c_p * (
+                c_ew[1:,1:-1] * self.p_prime[2:,1:-1] +
+                c_ew[:-1,1:-1] * self.p_prime[:-2,1:-1] +
+                c_ns[1:-1,1:] * self.p_prime[1:-1,2:] +
+                c_ns[1:-1,:-1] * self.p_prime[1:-1,:-2] +
+                c_hat[1:-1,1:-1]
+            )
+            # boundary points (edge)
+            # left edge
+            self.p_prime[0,1:-1] = inv_c_l * (
+                c_ew[0,1:-1] * self.p_prime[1,1:-1] +
+                c_ns[0,1:] * self.p_prime[0,2:] +
+                c_ns[0,:-1] * self.p_prime[0,:-2] +
+                c_hat[0,1:-1]
+            )
+            # right edge
+            self.p_prime[-1,1:-1] = inv_c_r * (
+                c_ew[-1,1:-1] * self.p_prime[-2,1:-1] +
+                c_ns[-1,1:] * self.p_prime[-1,2:] +
+                c_ns[-1,:-1] * self.p_prime[-1,:-2] +
+                c_hat[-1,1:-1]
+            )
+            # lower edge
+            self.p_prime[1:-1,0] = inv_c_d * (
+                c_ns[1:-1,0] * self.p_prime[1:-1,1] +
+                c_ew[:-1,0] * self.p_prime[:-2,0] +
+                c_ew[1:,0] * self.p_prime[2:,0] +
+                c_hat[1:-1,0]
+            )
+            # upper edge
+            self.p_prime[1:-1,-1] = inv_c_u * (
+                c_ns[1:-1,-1] * self.p_prime[1:-1,-2] +
+                c_ew[:-1,-1] * self.p_prime[:-2,-1] +
+                c_ew[1:,-1] * self.p_prime[2:,-1] +
+                c_hat[1:-1,-1]
+            )
+            
+            # boundary points (corner)
+            self.p_prime[0,0] = inv_c_ld * (
+                c_ew[0,0] * self.p_prime[1,0] +
+                c_ns[0,0] * self.p_prime[0,1] +
+                c_hat[0,0]
+            )
+            self.p_prime[0,-1] = inv_c_lu * (
+                c_ew[0,-1] * self.p_prime[1,-1] +
+                c_ns[0,-1] * self.p_prime[0,-2] +
+                c_hat[0,-1]
+            )
+            self.p_prime[-1,0] = inv_c_rd * (
+                c_ew[-1,0] * self.p_prime[-2,0] +
+                c_ns[-1,0] * self.p_prime[-1,1] +
+                c_hat[-1,0]
+            )
+            self.p_prime[-1,-1] = inv_c_ru * (
+                c_ew[-1,-1] * self.p_prime[-2,-1] +
+                c_ns[-1,-1] * self.p_prime[-1,-2] +
+                c_hat[-1,-1]
+            )
+            self.p_prime[int(self.nx/2),int(self.ny/2)] = 0
+            # check inner convergence
+            res = np.sum(np.abs(self.p_prime - value_old))
+            self.res = res
+            mxm = np.max(np.abs(self.p_prime))
+            if (res / mxm) < 1e-5:
+                print('converged by tol')
+                break
+        return
+
+    def solve_pressure_correction_amg(self, a_p, b_p):
+        """solve pressure correction using PyAMG"""
+        nx, ny = self.nx, self.ny
+        
+        # (nx-1,ny), (nx,ny-1)
+        c_ew = self.dy**2 / a_p
+        c_ns = self.dx**2 / b_p
+        
+        # 构建离散稀疏矩阵 A（在 (nx, ny) 网格上）
+        N = nx * ny
+        A = lil_matrix((N, N))
+
+        def idx(i, j):
+            """将 (i,j) 映射为矩阵行索引"""
+            return i * ny + j
+
+        for i in range(nx):
+            for j in range(ny):
+                row = idx(i, j)
+                diag = 0.0
+                
+                # 左邻点
+                if i > 0:
+                    coeff = c_ew[i - 1, j]
+                    A[row, idx(i - 1, j)] = -coeff
+                    diag += coeff
+                # 右邻点
+                if i < nx - 1:
+                    coeff = c_ew[i, j]
+                    A[row, idx(i + 1, j)] = -coeff
+                    diag += coeff
+                # 下邻点
+                if j > 0:
+                    coeff = c_ns[i, j - 1]
+                    A[row, idx(i, j - 1)] = -coeff
+                    diag += coeff
+                # 上邻点
+                if j < ny - 1:
+                    coeff = c_ns[i, j]
+                    A[row, idx(i, j + 1)] = -coeff
+                    diag += coeff
+                # 对角线
+                A[row, row] = diag
+
+        # 构建 RHS c_hat (nx, ny)
+        c_hat = -(
+            self.dy * (self.u_star[1:, 1:-1] - self.u_star[:-1, 1:-1]) +
+            self.dx * (self.v_star[1:-1, 1:] - self.v_star[1:-1, :-1])
+        )
+        b = c_hat.reshape(-1)
+
+        # 添加参考点以避免奇异性
+        ref_i, ref_j = nx // 2, ny // 2
+        ref_index = idx(ref_i, ref_j)
+        A[ref_index, :] = 0
+        A[ref_index, ref_index] = 1.0
+        b[ref_index] = 0.0
+
+        # 求解 p_prime 向量
+        A = A.tocsr()
+        ml = pyamg.ruge_stuben_solver(A)
+        x = ml.solve(b, tol=1e-8)
+
+        # 写回到 self.p_prime
+        self.p_prime[:, :] = x.reshape((nx, ny))
+
+    def solve_pressure_correction_amg_fix(self, a_p, b_p):
+        """solve pressure correction using PyAMG"""
+        nx, ny = self.nx, self.ny
+        
+        # (nx-1,ny), (nx,ny-1)
+        c_ew = self.dy**2 / a_p
+        c_ns = self.dx**2 / b_p
+        
+        # 构建离散稀疏矩阵 A（在 (nx, ny) 网格上）
+        N = nx * ny
+        A = self.build_A_matrix(c_ew, c_ns)
+
+        def idx(i, j):
+            """将 (i,j) 映射为矩阵行索引"""
+            return i * ny + j
+
+        # 构建 RHS c_hat (nx, ny)
+        c_hat = -(
+            self.dy * (self.u_star[1:, 1:-1] - self.u_star[:-1, 1:-1]) +
+            self.dx * (self.v_star[1:-1, 1:] - self.v_star[1:-1, :-1])
+        )
+        b = c_hat.reshape(-1)
+
+        # 添加参考点以避免奇异性
+        ref_i, ref_j = nx // 2, ny // 2
+        ref_index = idx(ref_i, ref_j)
+        A[ref_index, :] = 0
+        A[ref_index, ref_index] = 1.0
+        b[ref_index] = 0.0
+
+        # 求解 p_prime 向量
+        A = A.tocsr()
+        ml = pyamg.ruge_stuben_solver(A)
+        x = ml.solve(b, tol=1e-8)
+
+        # 写回到 self.p_prime
+        self.p_prime[:, :] = x.reshape((nx, ny))
+
     def correct_velocity_pressure(self, a_p, b_p):
         """modify velocity and pressure based on pressure correction"""
         # pressure correction with relaxation
@@ -398,7 +704,7 @@ class CavitySIMPLE(DiffSchemes):
             # SIMPLE steps
             a_p = self.solve_momentum_u_star(uworder=uworder)        # solve u*
             b_p = self.solve_momentum_v_star(uworder=uworder)         # solve v*
-            self.solve_pressure_correction(a_p, b_p) # solve p'
+            self.solve_pressure_correction_amg(a_p, b_p) # solve p'
             self.correct_velocity_pressure(a_p, b_p)# correct u,v,p
             
             # BDC

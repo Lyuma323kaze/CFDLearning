@@ -5,21 +5,21 @@ import matplotlib.tri as tri
 import os
 
 # domain and computational parameters
-nx, ny = 120, 120
+nx, ny = 128, 128
 x = np.linspace(0, 1, nx)
 y = np.linspace(0, 1, ny)
 dx = x[1] - x[0]
 dy = y[1] - y[0]
-cfl = 1e-4
+cfl = 0.5
 dt = cfl * min(dx, dy)  # time step
-Re = 1 # Reynolds number 
+Re = 1000 # Reynolds number 
 U_top = 1
-alpha_u = 0.3     # velocity relaxation factor
-alpha_v = 0.3
-alpha_p = 0.1   # pressure relaxation factor
-max_iter = 5000
-tol = 1e-7
-tune = True
+alpha_u = 0.99     # velocity relaxation factor
+alpha_v = 0.99
+alpha_p = 1   # pressure relaxation factor
+max_iter = 10000
+tol = 1e-5
+tune = False
 
 # name and folder of the case
 name = 'cavity_flow'

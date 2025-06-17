@@ -4,14 +4,6 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import os
 
-# name and folder of the case
-name = 'cavity_flow'
-folder = 'Proj2\\SIMPLE'
-if not os.path.exists(folder):
-    os.makedirs(folder)
-file_path = os.path.join(folder, f'{name}.png')
-
-
 # domain and computational parameters
 nx, ny = 120, 120
 x = np.linspace(0, 1, nx)
@@ -20,14 +12,21 @@ dx = x[1] - x[0]
 dy = y[1] - y[0]
 cfl = 1e-4
 dt = cfl * min(dx, dy)  # time step
-Re = 400 # Reynolds number 
+Re = 1 # Reynolds number 
 U_top = 1
-alpha_u = 5e-2     # velocity relaxation factor
-alpha_v = 5e-2
+alpha_u = 0.3     # velocity relaxation factor
+alpha_v = 0.3
 alpha_p = 0.1   # pressure relaxation factor
-max_iter = 4000
-tol = 1e-6
-tune = False
+max_iter = 5000
+tol = 1e-7
+tune = True
+
+# name and folder of the case
+name = 'cavity_flow'
+folder = 'Proj2\\SIMPLE'
+if not os.path.exists(folder):
+    os.makedirs(folder)
+file_path = os.path.join(folder, f'{name}@Re={Re}.png')
 
 # solver definition
 cavity = CavitySIMPLE(

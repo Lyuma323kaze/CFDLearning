@@ -12,15 +12,15 @@ dx = x[1] - x[0]
 dy = y[1] - y[0]
 cfl = 1e-1
 dt = cfl * min(dx, dy)  # time step
-Re = 1 # Reynolds number 
+Re = 1000 # Reynolds number 
 U_top = 1
-alpha_u = 0.1     # velocity relaxation factor
-alpha_v = 0.1
-alpha_p = 0.3   # pressure relaxation factor
+alpha_u = 0.9     # velocity relaxation factor
+alpha_v = 0.9
+alpha_p = 0.6   # pressure relaxation factor
 max_iter = 10000
 tol = 1e-5
-tune = False
-amg = False     # amg pressure solver for high Re, Jacobian for low Re
+tune = True
+amg = True     # amg pressure solver for high Re, Jacobian for low Re
 
 # name and folder of the case
 name = 'cavity_flow'

@@ -60,6 +60,9 @@ class OGridLaplaceGenerator:
         self.xi_y = None
         self.eta_x = None
         self.eta_y = None
+        
+        self.nx = None
+        self.ny = None
         # For O-grids, xi represents angular-like coordinate
         # Common normalization ranges from 0 to almost 1 (or 2*pi)
         self.xi_comp = self.xi / NI
@@ -270,7 +273,8 @@ class OGridLaplaceGenerator:
         main_loop(x, y, x_xi, y_xi, x_eta, y_eta, J_jacobian)
     
     def solve_laplace_equations_with_source(self, max_iterations=10000, tolerance=1e-6,
-                                            alpha = 0.5, intn_lft=-150, intn_rgt=-150, rad_l=0.5, rad_r=0.5,
+                                            alpha = 0.5, intn_lft=-150, intn_rgt=-150, intn_norm=150,
+                                            rad_l=0.5, rad_r=0.5, rad_norm=0.5,
                                             let_p=True, let_q=True, intn_wall=-150, rad_wall=0.5, wall=True):
         """
         Solve Laplace equations with source term.
@@ -297,14 +301,14 @@ class OGridLaplaceGenerator:
         def source(x, y, center_x, center_y, intensity, decay_radius, left=True):
             source_field = np.zeros_like(x)
             r_sq_max = decay_radius ** 2
-            sigma = decay_radius / 5
+            sigma = decay_radius / 3
             for i in prange(NI):
                 for j in prange(NJ):
                     dx = x[i, j] - center_x
                     dy = y[i, j] - center_y
                     r_sq = dx**2 + dy**2
-                    if r_sq < r_sq_max:
-                        source_field[i, j] = intensity * np.exp(-r_sq / (2 * sigma**2)) * (r_sq / sigma ** 2)
+                    # if r_sq < r_sq_max:
+                    source_field[i, j] = intensity * np.exp(-r_sq / (2 * sigma**2)) # * (r_sq / sigma ** 2)
             
             dx_entire = x - center_x
             if left == True:
@@ -328,12 +332,84 @@ class OGridLaplaceGenerator:
                     dy = y[i, j] - y[i, 0]
                     dist_l = (x[i, j])**2 + y[i, j]**2
                     dist_r = (x[i, j] - 1)**2 + y[i, j]**2
-                    if ((dist_l > rad_l**2) and (dist_r > rad_r**2)):
-                        source_field[i, j] = intensity * np.exp(-dy ** 2 / (2 * sigma**2))
+                    # if ((dist_l > rad_l**2) and (dist_r > rad_r**2)):
+                    source_field[i, j] = intensity * np.exp(-dy ** 2 / (2 * sigma**2))
 
             if not wall:
                 source_field *= 0
             return source_field
+        
+        @jit
+        def source_boundary_normal(x, y, xb, yb, intensity, decay_radius, apply=True):
+            def compute_inner_boundary_normals(xb, yb):
+                """
+                given inner bound, return normals
+                """
+                NI = xb.shape[0]
+                tx = np.zeros(NI)
+                ty = np.zeros(NI)
+
+                # compute tangential vectors (central diff)
+                for i in range(1, NI - 1):
+                    dx = xb[i + 1] - xb[i - 1]
+                    dy = yb[i + 1] - yb[i - 1]
+                    norm = np.sqrt(dx**2 + dy**2) + 1e-14
+                    tx[i] = dx / (norm + 1e-20)
+                    ty[i] = dy / (norm + 1e-20)
+
+                # (former and backwards diff at bd)
+                dx = xb[1] - xb[0]
+                dy = yb[1] - yb[0]
+                norm = np.sqrt(dx**2 + dy**2) + 1e-14
+                tx[0] = dx / (norm + 1e-20)
+                ty[0] = dy / (norm + 1e-20)
+
+                dx = xb[-1] - xb[-2]
+                dy = yb[-1] - yb[-2]
+                norm = np.sqrt(dx**2 + dy**2) + 1e-14
+                tx[-1] = dx / (norm + 1e-20)
+                ty[-1] = dy / (norm + 1e-20)
+
+                # normal [-ty, tx]
+                nx = -ty
+                ny = tx
+
+                return nx, ny
+            nx, ny = compute_inner_boundary_normals(x[:,0],y[:,0])
+            
+            source_field = np.zeros_like(x)
+            if not apply:
+                return source_field
+
+            sigma = decay_radius / 3
+            for i in prange(NI):
+                for j in prange(NJ):
+                    dx = x[i, j] - xb[i]
+                    dy = y[i, j] - yb[i]
+                    dn = dx * nx[i] + dy * ny[i]  # normal distance
+                    source_field[i, j] = intensity * np.exp(- (dn ** 2) / (2 * sigma ** 2))
+            
+            return source_field
+
+        @jit
+        def add_source(x, y, head, tail, intn_lft, intn_rgt, intn_norm, rad_l, rad_r, rad_norm, let_p=False, let_q=True):
+            if let_p:
+                P = source(x, y, head, 0, intn_lft, rad_l, left=None) +\
+                    source(x, y, tail, 0, intn_rgt, rad_r, left=None) +\
+                    source_wall(x, y, intn_wall, rad_wall, wall=wall) 
+                    # source_boundary_normal(x, y, x[:,0], y[:,0],
+                    #                        intn_norm, rad_norm)
+            else:
+                P = source(x, y, 0, 0, 0, 1)
+            if let_q:
+                Q = source(x, y, head, 0, intn_lft, rad_l, left=None) +\
+                    source(x, y, tail, 0, intn_rgt, rad_r, left=None) +\
+                    source_wall(x, y, 0, intn_wall, wall=wall) +\
+                    source_boundary_normal(x, y, x[:,0], y[:,0],
+                                           intn_norm, rad_norm)
+            else:
+                Q = source(x, y, 0, 0, 0, 1)
+            return P, Q
         
         # Jacobian iteration
         @jit
@@ -384,13 +460,16 @@ class OGridLaplaceGenerator:
         
         @jit
         def sub_loop(x, y, x_xi, y_xi, x_eta, y_eta, J_jacobian, max_iterations_, tolerance_,
-                     alpha=alpha, NI=NI, NJ=NJ, intn_lft=intn_lft, intn_rgt=intn_rgt, rad_l=rad_l, rad_r=rad_r,
+                     alpha=alpha, NI=NI, NJ=NJ,
+                     intn_lft=intn_lft, intn_rgt=intn_rgt, intn_norm=intn_norm,
+                     rad_l=rad_l, rad_r=rad_r, rad_norm=rad_norm,
                      let_p=let_p, let_q=let_q):
             # the transitioned indices
             xi_p1 = np.zeros((NI, NJ), dtype=np.int32)
             xi_m1 = np.zeros((NI, NJ), dtype=np.int32)
             P = np.zeros((NI, NJ), dtype=np.float64)[:, 1:-1]
             Q = np.zeros((NI, NJ), dtype=np.float64)[:, 1:-1]
+            head, tail = 0, 1
             # indices
             for j in prange(NJ):
                 for i in prange(NI):
@@ -411,19 +490,9 @@ class OGridLaplaceGenerator:
             y_xi_ = y_xi
             y_eta_ = y_eta
             Jacobian_ = J_jacobian
-            if let_p:
-                P = source(x, y, 0.05, 0, intn_lft, rad_l, left=True) +\
-                    source(x, y, 0.98, 0, intn_rgt, rad_r, left=False) +\
-                    source_wall(x, y, intn_wall, rad_wall, wall=wall)
-            else:
-                P = source(x, y, 0, 0, 0, 1)
-            if let_q:
-                Q = source(x, y, 0, 0, intn_lft, rad_l, left=True) +\
-                    source(x, y, 1, 0, intn_rgt, rad_r, left=False) +\
-                    source_wall(x, y, 0, 0.5, wall=wall)
-            else:
-                Q = source(x, y, 0, 0, 0, 1)
-                
+            
+            P, Q = add_source(x, y, head, tail, intn_lft, intn_rgt, intn_norm, rad_l, rad_r, rad_norm, let_p, let_q)
+            
             for iteration in prange(max_iterations_):
                 # values of last iteration
                 x_old_iter_ = x.copy()
@@ -487,18 +556,9 @@ class OGridLaplaceGenerator:
                 x = (alpha) * x_new + (1 - alpha) * x_old_iter_
                 y = (alpha) * y_new + (1 - alpha) * y_old_iter_
                 x_xi_, x_eta_, y_xi_, y_eta_, J_jacobian_ = comput_drv_phy_to_com_and_jcbn(x, y, J_jacobian)
-                if let_p:
-                    P = source(x, y, 0.05, 0, intn_lft, rad_l, left=None) +\
-                        source(x, y, 0.98, 0, intn_rgt, rad_r, left=None) +\
-                        source_wall(x, y, intn_wall, rad_wall, wall=wall)
-                else:
-                    P = source(x, y, 0, 0, 0, 1)
-                if let_q:        
-                    Q = source(x, y, 0, 0, intn_lft, rad_l, left=True) +\
-                        source(x, y, 1, 0, intn_rgt, rad_r, left=False) +\
-                        source_wall(x, y, intn_wall, rad_wall, wall=wall)
-                else:
-                    Q = source(x, y, 0, 0, 0, 1)
+                
+                P, Q = add_source(x, y, head, tail, intn_lft, intn_rgt, intn_norm, rad_l, rad_r, rad_norm, let_p, let_q)
+                
                 Jacobian_ = J_jacobian
                 
                 if current_max_diff > max_diff_iter:
@@ -674,9 +734,7 @@ class OGridLaplaceGenerator:
                 plt.savefig(f'{file_name}.png', dpi=600)
             else:
                 plt.savefig(f'{file_name}_finer.png')
-        # test
         
-
     def plot_computational_grid(self):
         """Plot grid in computational (xi,eta) plane"""
         if 'matplotlib' not in globals() and 'plt' not in globals():
@@ -760,16 +818,18 @@ if __name__ == '__main__':
     symmetric = True  # symmetric endpoint for inner boundary
     chord_length = 1.0  # chord length for NACA0012 airfoil
     radius = 5.0  # radius for outer circle boundary
-    source_intensity_left = -5000  # source intensity for Laplace solver
-    source_intensity_right = -1000  # source intensity for Laplace solver
-    source_intensity_wall = 100  # source intensity for wall source
-    source_radius_left = 0.2  # source radius for Laplace solver
-    source_radius_right = 0.2  # source radius for Laplace solver
+    source_intensity_left = -8000  # source intensity for Laplace solver
+    source_intensity_right = -8000  # source intensity for Laplace solver
+    source_intensity_wall = -1  # source intensity for wall source
+    source_intensity_norm = 50 # source intensity for normal orthogonality
+    source_radius_left = 0.15  # source radius for Laplace solver
+    source_radius_right = 0.1  # source radius for Laplace solver
     source_radius_wall = 0.1  # source radius for wall source
+    source_radius_norm = 4  # source radius for normal orthogonality
     let_p = False
     let_q = True
     wall = True  # wall source
-    max_iterations = 2000  # max iterations for Laplace solver
+    max_iterations = 800  # max iterations for Laplace solver
     compute = True  # compute the grid or not
     tuning = not compute  # tuning the grid or not
     with_source = True
@@ -812,8 +872,10 @@ if __name__ == '__main__':
                                                         alpha=alpha,
                                                         intn_lft=source_intensity_left,
                                                         intn_rgt=source_intensity_right,
+                                                        intn_norm=source_intensity_norm,
                                                         rad_l=source_radius_left,
                                                         rad_r=source_radius_right,
+                                                        rad_norm=source_radius_norm,
                                                         let_p=let_p,
                                                         let_q=let_q,
                                                         intn_wall=source_intensity_wall,

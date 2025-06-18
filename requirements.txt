@@ -1,6 +1,11 @@
-cupy==13.4.1
+ipython==8.12.3
 jax==0.6.0
+jaxlib==0.6.0
 matplotlib==3.10.3
 numba==0.61.2
 numpy==2.2.5
+pip==25.1.1
+pipreqs==0.5.0
+pyamg==5.2.1
+requests==2.32.3
 scipy==1.15.3

@@ -345,129 +345,6 @@ class CavitySIMPLE(DiffSchemes):
         # a_p is (nx-1,ny), b_p is (nx,ny-1)
         # self.u is (nx+1,ny+2) with virtual nodes, self.v is (nx+2,ny+1) with virtual nodes
         # w,e,u,d with BDC (nx,ny)
-        self.get_transitioned()
-        # coefficients
-        # (nx-1,ny)
-        c_ew = self.dy ** 2 / a_p
-        # (nx,ny-1)
-        c_ns = self.dx ** 2 / b_p
-        # (nx-2,ny-2)
-        c_p = (c_ew[1:,1:-1] +
-               c_ew[:-1,1:-1] +
-               c_ns[1:-1,1:] +
-               c_ns[1:-1,:-1])
-        
-        def get_inv_val(c_p, c_ew, c_ns):
-            inv_c_p = 1. / (c_p + 1e-12)
-            inv_c_l = 1. / ((c_ew[0,1:-1] +
-                            c_ns[0,1:] + 
-                            c_ns[0,:-1]) + 1e-12)
-            inv_c_r = 1. / ((c_ew[-1,1:-1] +
-                             c_ns[-1,1:] +
-                             c_ns[-1,:-1]) + 1e-12)
-            inv_c_u = 1. / ((c_ns[1:-1,-1] +
-                            c_ew[:-1,-1] +
-                            c_ew[1:,-1]) + 1e-12)
-            inv_c_d = 1. / ((c_ns[1:-1,0] +
-                            c_ew[:-1,0] +
-                            c_ew[1:,0]) + 1e-12)
-            inv_c_lu = 1. / ((c_ew[0,-1] + c_ns[0,-1]) + 1e-12)
-            inv_c_ld = 1. / ((c_ew[0,0] + c_ns[0,0]) + 1e-12)
-            inv_c_ru = 1. / ((c_ew[-1,-1] + c_ns[-1,-1]) + 1e-12)
-            inv_c_rd = 1. / ((c_ew[-1,0] + c_ns[-1,0]) + 1e-12)
-            
-            return (inv_c_p, inv_c_l, inv_c_r, inv_c_u, inv_c_d, 
-                    inv_c_lu, inv_c_ld, inv_c_ru, inv_c_rd)
-        (inv_c_p,
-         inv_c_l, inv_c_r, inv_c_u, inv_c_d, 
-         inv_c_lu, inv_c_ld, inv_c_ru, inv_c_rd) = get_inv_val(c_p, c_ew, c_ns)
-        
-        c_hat = -(
-            self.dy * (self.u_star[1:,1:-1] - self.u_star[:-1,1:-1]) +
-            self.dx * (self.v_star[1:-1,1:] - self.v_star[1:-1,:-1])
-        )
-        
-        value_old = np.empty_like(self.p_prime)
-        self.chat = np.sum(np.abs(c_hat))
-        for _ in range(iter_p):
-            np.copyto(value_old, self.p_prime)
-            # jacobian p_prime update with [100,100] the reference
-            # inner points (nx-2,ny-2)
-            self.p_prime[1:-1,1:-1] = inv_c_p * (
-                c_ew[1:,1:-1] * self.p_prime_r[1:-1,1:-1] +
-                c_ew[:-1,1:-1] * self.p_prime_l[1:-1,1:-1] +
-                c_ns[1:-1,1:] * self.p_prime_u[1:-1,1:-1] +
-                c_ns[1:-1,:-1] * self.p_prime_d[1:-1,1:-1] +
-                c_hat[1:-1,1:-1]
-            )
-            # boundary points (edge)
-            # left edge
-            self.p_prime[0,1:-1] = inv_c_l * (
-                c_ew[0,1:-1] * self.p_prime_r[0,1:-1] +
-                c_ns[0,1:] * self.p_prime_u[0,1:-1] +
-                c_ns[0,:-1] * self.p_prime_d[0,1:-1] +
-                c_hat[0,1:-1]
-            )
-            # right edge
-            self.p_prime[-1,1:-1] = inv_c_r * (
-                c_ew[-1,1:-1] * self.p_prime_l[-1,1:-1] +
-                c_ns[-1,1:] * self.p_prime_u[-1,1:-1] +
-                c_ns[-1,:-1] * self.p_prime_d[-1,1:-1] +
-                c_hat[-1,1:-1]
-            )
-            # lower edge
-            self.p_prime[1:-1,0] = inv_c_d * (
-                c_ns[1:-1,0] * self.p_prime_u[1:-1,0] +
-                c_ew[:-1,0] * self.p_prime_l[1:-1,0] +
-                c_ew[1:,0] * self.p_prime_r[1:-1,0] +
-                c_hat[1:-1,0]
-            )
-            # upper edge
-            self.p_prime[1:-1,-1] = inv_c_u * (
-                c_ns[1:-1,-1] * self.p_prime_d[1:-1,-1] +
-                c_ew[:-1,-1] * self.p_prime_l[1:-1,-1] +
-                c_ew[1:,-1] * self.p_prime_r[1:-1,-1] +
-                c_hat[1:-1,-1]
-            )
-            
-            # boundary points (corner)
-            self.p_prime[0,0] = inv_c_ld * (
-                c_ew[0,0] * self.p_prime_r[0,0] +
-                c_ns[0,0] * self.p_prime_u[0,0] +
-                c_hat[0,0]
-            )
-            self.p_prime[0,-1] = inv_c_lu * (
-                c_ew[0,-1] * self.p_prime_r[0,-1] +
-                c_ns[0,-1] * self.p_prime_d[0,-1] +
-                c_hat[0,-1]
-            )
-            self.p_prime[-1,0] = inv_c_rd * (
-                c_ew[-1,0] * self.p_prime_l[-1,0] +
-                c_ns[-1,0] * self.p_prime_u[-1,0] +
-                c_hat[-1,0]
-            )
-            self.p_prime[-1,-1] = inv_c_ru * (
-                c_ew[-1,-1] * self.p_prime_l[-1,-1] +
-                c_ns[-1,-1] * self.p_prime_d[-1,-1] +
-                c_hat[-1,-1]
-            )
-            self.p_prime[int(self.nx/2),int(self.ny/2)] = 0
-            # w,e,u,d with BDC (nx,ny)
-            self.get_transitioned()
-            # check inner convergence
-            res = np.sum(np.abs(self.p_prime - value_old))
-            self.res = res
-            mxm = np.max(np.abs(self.p_prime))
-            if (res / mxm) < 1e-5:
-                print('converged by tol')
-                break
-        return
-    
-    def solve_pressure_correction_(self, a_p, b_p, iter_p=10000):
-        """solve pressure correction equation"""
-        # a_p is (nx-1,ny), b_p is (nx,ny-1)
-        # self.u is (nx+1,ny+2) with virtual nodes, self.v is (nx+2,ny+1) with virtual nodes
-        # w,e,u,d with BDC (nx,ny)
         
         # coefficients
         # (nx-1,ny)
@@ -568,15 +445,15 @@ class CavitySIMPLE(DiffSchemes):
         nx, ny = self.nx, self.ny
         
         # (nx-1,ny), (nx,ny-1)
-        c_ew = self.dy**2 / a_p
-        c_ns = self.dx**2 / b_p
+        c_ew = self.dy**2 / (a_p + 1e-20)
+        c_ns = self.dx**2 / (b_p + 1e-20)
         
-        # 构建离散稀疏矩阵 A（在 (nx, ny) 网格上）
+        # construct sparse matrix A (on (nx,ny) mesh)
         N = nx * ny
         A = lil_matrix((N, N))
 
         def idx(i, j):
-            """将 (i,j) 映射为矩阵行索引"""
+            """mapping (i,j) to row index"""
             return i * ny + j
 
         for i in range(nx):
@@ -584,87 +461,50 @@ class CavitySIMPLE(DiffSchemes):
                 row = idx(i, j)
                 diag = 0.0
                 
-                # 左邻点
+                # left neighbor
                 if i > 0:
                     coeff = c_ew[i - 1, j]
                     A[row, idx(i - 1, j)] = -coeff
                     diag += coeff
-                # 右邻点
+                # right neighbor
                 if i < nx - 1:
                     coeff = c_ew[i, j]
                     A[row, idx(i + 1, j)] = -coeff
                     diag += coeff
-                # 下邻点
+                # lower neighbor
                 if j > 0:
                     coeff = c_ns[i, j - 1]
                     A[row, idx(i, j - 1)] = -coeff
                     diag += coeff
-                # 上邻点
+                # upper neighbor
                 if j < ny - 1:
                     coeff = c_ns[i, j]
                     A[row, idx(i, j + 1)] = -coeff
                     diag += coeff
-                # 对角线
+                # diagonal
                 A[row, row] = diag
 
-        # 构建 RHS c_hat (nx, ny)
+        # construct RHS c_hat (nx, ny)
         c_hat = -(
             self.dy * (self.u_star[1:, 1:-1] - self.u_star[:-1, 1:-1]) +
             self.dx * (self.v_star[1:-1, 1:] - self.v_star[1:-1, :-1])
         )
         b = c_hat.reshape(-1)
 
-        # 添加参考点以避免奇异性
+        # reference added for avoiding singularity
         ref_i, ref_j = nx // 2, ny // 2
         ref_index = idx(ref_i, ref_j)
         A[ref_index, :] = 0
         A[ref_index, ref_index] = 1.0
         b[ref_index] = 0.0
 
-        # 求解 p_prime 向量
+     
+        # solve p_prime vector
         A = A.tocsr()
-        ml = pyamg.ruge_stuben_solver(A)
+        ml = pyamg.ruge_stuben_solver(A, coarse_solver='cg')
         x = ml.solve(b, tol=1e-8)
 
-        # 写回到 self.p_prime
-        self.p_prime[:, :] = x.reshape((nx, ny))
-
-    def solve_pressure_correction_amg_fix(self, a_p, b_p):
-        """solve pressure correction using PyAMG"""
-        nx, ny = self.nx, self.ny
-        
-        # (nx-1,ny), (nx,ny-1)
-        c_ew = self.dy**2 / a_p
-        c_ns = self.dx**2 / b_p
-        
-        # 构建离散稀疏矩阵 A（在 (nx, ny) 网格上）
-        N = nx * ny
-        A = self.build_A_matrix(c_ew, c_ns)
-
-        def idx(i, j):
-            """将 (i,j) 映射为矩阵行索引"""
-            return i * ny + j
-
-        # 构建 RHS c_hat (nx, ny)
-        c_hat = -(
-            self.dy * (self.u_star[1:, 1:-1] - self.u_star[:-1, 1:-1]) +
-            self.dx * (self.v_star[1:-1, 1:] - self.v_star[1:-1, :-1])
-        )
-        b = c_hat.reshape(-1)
-
-        # 添加参考点以避免奇异性
-        ref_i, ref_j = nx // 2, ny // 2
-        ref_index = idx(ref_i, ref_j)
-        A[ref_index, :] = 0
-        A[ref_index, ref_index] = 1.0
-        b[ref_index] = 0.0
-
-        # 求解 p_prime 向量
-        A = A.tocsr()
-        ml = pyamg.ruge_stuben_solver(A)
-        x = ml.solve(b, tol=1e-8)
-
-        # 写回到 self.p_prime
+        # write back to self.p_prime
         self.p_prime[:, :] = x.reshape((nx, ny))
 
     def correct_velocity_pressure(self, a_p, b_p):
@@ -681,7 +521,7 @@ class CavitySIMPLE(DiffSchemes):
             (self.p_prime[:,1:] - self.p_prime[:,:-1]) / b_p)
         self.apply_boundary_conditions()  # apply BDC
         
-    def solve(self, uworder=1, tune=True):
+    def solve(self, uworder=1, tune=True, amg=True):
         """SIMPLE main loop"""
         if tune:
             prt = 20
@@ -695,38 +535,70 @@ class CavitySIMPLE(DiffSchemes):
         print(
             (self.dx * self.dy / self.dt) * self.Re
         )
-        
-        for iter in range(self.max_iter):
-            # velocity old values
-            u_old = np.copy(self.u)
-            v_old = np.copy(self.v)
-            
-            # SIMPLE steps
-            a_p = self.solve_momentum_u_star(uworder=uworder)        # solve u*
-            b_p = self.solve_momentum_v_star(uworder=uworder)         # solve v*
-            self.solve_pressure_correction_amg(a_p, b_p) # solve p'
-            self.correct_velocity_pressure(a_p, b_p)# correct u,v,p
-            
-            # BDC
-            self.apply_boundary_conditions()
-            self.apply_boundary_conditions_star()
-            # mass conservation check
-            mass_error = np.sum(np.abs(
-                (self.u[:-1, 1:-1] - self.u[1:, 1:-1]) * self.dy +
-                (self.v[1:-1, :-1] - self.v[1:-1, 1:]) * self.dx
-            ))
-            mass_error /= (self.dx * self.dy)
-            # convergence check
-            u_res = np.max(np.abs(self.u - u_old))
-            v_res = np.max(np.abs(self.v - v_old))
-            
-            
-            if (iter+1) % prt == 0:
-                print(f"Iter {iter+1}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
-            
-            if (u_res < self.tol) and (v_res < self.tol):
-                print(f"Converged at iteration {iter}")
-                break
+        if amg:
+            for iter in range(self.max_iter):
+                # velocity old values
+                u_old = np.copy(self.u)
+                v_old = np.copy(self.v)
+                
+                # SIMPLE steps
+                a_p = self.solve_momentum_u_star(uworder=uworder)        # solve u*
+                b_p = self.solve_momentum_v_star(uworder=uworder)         # solve v*
+                self.solve_pressure_correction_amg(a_p, b_p) # solve p'
+                self.correct_velocity_pressure(a_p, b_p)# correct u,v,p
+                
+                # BDC
+                self.apply_boundary_conditions()
+                self.apply_boundary_conditions_star()
+                # mass conservation check
+                mass_error = np.sum(np.abs(
+                    (self.u[:-1, 1:-1] - self.u[1:, 1:-1]) * self.dy +
+                    (self.v[1:-1, :-1] - self.v[1:-1, 1:]) * self.dx
+                ))
+                mass_error /= (self.dx * self.dy)
+                # convergence check
+                u_res = np.max(np.abs(self.u - u_old))
+                v_res = np.max(np.abs(self.v - v_old))
+                
+                
+                if (iter+1) % prt == 0:
+                    print(f"Iter {iter+1}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
+                
+                if (u_res < self.tol) and (v_res < self.tol):
+                    print(f"Converged at iteration {iter}")
+                    break
+        elif not amg:
+            for iter in range(self.max_iter):
+                # velocity old values
+                u_old = np.copy(self.u)
+                v_old = np.copy(self.v)
+                
+                # SIMPLE steps
+                a_p = self.solve_momentum_u_star(uworder=uworder)        # solve u*
+                b_p = self.solve_momentum_v_star(uworder=uworder)         # solve v*
+                self.solve_pressure_correction(a_p, b_p) # solve p'
+                self.correct_velocity_pressure(a_p, b_p)# correct u,v,p
+                
+                # BDC
+                self.apply_boundary_conditions()
+                self.apply_boundary_conditions_star()
+                # mass conservation check
+                mass_error = np.sum(np.abs(
+                    (self.u[:-1, 1:-1] - self.u[1:, 1:-1]) * self.dy +
+                    (self.v[1:-1, :-1] - self.v[1:-1, 1:]) * self.dx
+                ))
+                mass_error /= (self.dx * self.dy)
+                # convergence check
+                u_res = np.max(np.abs(self.u - u_old))
+                v_res = np.max(np.abs(self.v - v_old))
+                
+                
+                if (iter+1) % prt == 0:
+                    print(f"Iter {iter+1}: U_res={u_res:.2e}, V_res={v_res:.2e}, Mass_err={mass_error:.2e}, c_hat={self.chat:.2e}")
+                
+                if (u_res < self.tol) and (v_res < self.tol):
+                    print(f"Converged at iteration {iter}")
+                    break
 
     def get_center_velocity(self):
         """velocity at cell centers"""

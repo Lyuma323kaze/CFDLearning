@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from numba import jit, prange
+import os
 
 class OGridLaplaceGenerator:
     """
@@ -634,37 +635,7 @@ class OGridLaplaceGenerator:
         plt.legend()
         plt.show()
     
-    def plot_physical_grid(self, show_points=False):
-        """Plot generated grid in physical (x,y) plane"""
-        if 'matplotlib' not in globals() and 'plt' not in globals(): 
-            print("Matplotlib not imported. Cannot plot grid")
-            return
-
-        plt.figure(figsize=(10, 8))
-        
-        # Plot constant-eta lines (look like "rings" or "shells" in O-grid)
-        # self.x[:, j] is line of constant j (eta)
-        for j in range(self.NJ):  # For each eta=constant line
-            # Connect last point to first to close O-grid loop
-            line_x = np.append(self.x[:, j], self.x[0, j])
-            line_y = np.append(self.y[:, j], self.y[0, j])
-            plt.plot(line_x, line_y, 'b-', linewidth=0.8, label='Eta lines' if j == 0 else "")
-
-
-        # Plot constant-xi lines (look like "radial lines" or "spokes")
-        # self.x[i, :] is line of constant i (xi)
-        for i in range(self.NI):  # For each xi=constant line
-            plt.plot(self.x[i, :], self.y[i, :], 'r-', linewidth=0.8, label='Xi lines' if i == 0 else "")
-        
-        plt.xlabel("x (Physical)")
-        plt.ylabel("y (Physical)")
-        plt.title(f"Generated O-grid (NI={self.NI}, NJ={self.NJ})")
-        plt.axis('equal')
-        plt.grid(True, linestyle=':', alpha=0.5)
-        if self.NI > 0 and self.NJ > 0 : plt.legend()
-        plt.show()
-    
-    def plot_physical_grid(self, show_points=False):
+    def plot_physical_grid(self, file_name=None, lim=True):
         """Plot generated grid in physical (x,y) plane"""
         if 'matplotlib' not in globals() and 'plt' not in globals(): 
             print("Matplotlib not imported. Cannot plot grid")
@@ -691,9 +662,20 @@ class OGridLaplaceGenerator:
         plt.ylabel("y (Physical)")
         plt.title(f"Generated O-grid (NI={self.NI}, NJ={self.NJ})")
         plt.axis('equal')
+        if lim:
+            plt.xlim(-0.5, 1.5)
+            plt.ylim(-0.25, 0.25)
         plt.grid(True, linestyle=':', alpha=0.5)
         if self.NI > 0 and self.NJ > 0 : plt.legend()
-        plt.show()
+        if file_name is None:
+            plt.show()
+        else:
+            if not lim:
+                plt.savefig(f'{file_name}.png', dpi=600)
+            else:
+                plt.savefig(f'{file_name}_finer.png')
+        
+        
 
     def plot_computational_grid(self):
         """Plot grid in computational (xi,eta) plane"""
@@ -791,7 +773,14 @@ if __name__ == '__main__':
     compute = True  # compute the grid or not
     tuning = not compute  # tuning the grid or not
     with_source = True
+    lim = True  # plot the mesh near inner bound
     
+    # name and folder of the case
+    name = 'Laplacian_mesh'
+    folder = 'Proj2\\Mesh'
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    file_name = os.path.join(folder, f'{name}')
 
     print(f"generating O type mesh, NI={NI_points}, NJ={NJ_points}...")
 
@@ -840,5 +829,5 @@ if __name__ == '__main__':
         
         # plotting the grid
         print("\n plotting the mesh...")
-        generator.plot_physical_grid(show_points=False)
+        generator.plot_physical_grid(file_name=file_name, lim=lim)
         print("Plotting completed.")

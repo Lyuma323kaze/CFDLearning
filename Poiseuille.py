@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from vorStream import VorticityStreamPoiseuille
+import os
 
 # 参数设置
 Lx, Ly = 100.0, 1.0       # 流域尺寸
@@ -19,7 +20,14 @@ tol = 1e-6
 
 t = np.arange(0, 10, dt)   # 时间数组
 
-# 创建求解器实例
+# name and folder of the case
+name = 'Poiseuille'
+folder = 'Proj2\\vorStream'
+if not os.path.exists(folder):
+    os.makedirs(folder)
+file_path = os.path.join(folder, f'{name}.png')
+
+# create object
 solver = VorticityStreamPoiseuille(
     name="PoiseuilleFlow",
     dt=dt,
@@ -33,19 +41,17 @@ solver = VorticityStreamPoiseuille(
     H=H
 )
 
-# 求解
 solver.solve(max_iter=max_iter, tol=tol)
 
-# 获取速度场
 u, v = solver.get_velocity_field()
 
-u_outlet = u[-1, :]   # 最后一个x位置的所有y点的u速度
-v_outlet = v[-1, :]   # 最后一个x位置的所有y点的v速度
+u_outlet = u[-1, :]   # u profile at outlet
+v_outlet = v[-1, :]   # v profile at outlet
 
-# 创建绘图区域
+# plot figure
 plt.figure(figsize=(10, 6))
 
-# 绘制u速度分量
+# plot u
 plt.subplot(2, 1, 1)
 plt.plot(y, u_outlet, 'b-o', linewidth=2, markersize=4, label='u')
 plt.grid(True)
@@ -54,7 +60,7 @@ plt.ylabel('u Velocity')
 plt.legend()
 plt.xlim(min(y), max(y))
 
-# 绘制v速度分量
+# plot v
 plt.subplot(2, 1, 2)
 plt.plot(y, v_outlet, 'r-o', linewidth=2, markersize=4, label='v')
 plt.grid(True)
@@ -64,17 +70,17 @@ plt.legend()
 plt.xlim(min(y), max(y))
 
 plt.tight_layout()
-plt.show()
+plt.savefig(file_path)
 
-# # 可选：将两个速度分量绘制在同一个坐标系中（便于比较）
-# plt.figure(figsize=(10, 5))
-# plt.plot(y, u_outlet, 'b-o', label='u', markersize=4)
-# plt.plot(y, v_outlet, 'r-o', label='v', markersize=4)
-# plt.grid(True)
-# plt.title('Downstream Velocity Profile (x = L)')
-# plt.xlabel('y Coordinate')
-# plt.ylabel('Velocity Magnitude')
-# plt.legend()
-# plt.xlim(min(y), max(y))
-# plt.tight_layout()
-# plt.show()
+# optional: plot together
+plt.figure(figsize=(10, 5))
+plt.plot(y, u_outlet, 'b-o', label='u', markersize=4)
+plt.plot(y, v_outlet, 'r-o', label='v', markersize=4)
+plt.grid(True)
+plt.title('Downstream Velocity Profile (x = L)')
+plt.xlabel('y Coordinate')
+plt.ylabel('Velocity Magnitude')
+plt.legend()
+plt.xlim(min(y), max(y))
+plt.tight_layout()
+plt.savefig(f'{file_path}_together.png')

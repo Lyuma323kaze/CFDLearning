@@ -10,16 +10,17 @@ x = np.linspace(0, 1, nx)
 y = np.linspace(0, 1, ny)
 dx = x[1] - x[0]
 dy = y[1] - y[0]
-cfl = 0.5
+cfl = 1e-1
 dt = cfl * min(dx, dy)  # time step
-Re = 1000 # Reynolds number 
+Re = 1 # Reynolds number 
 U_top = 1
-alpha_u = 0.99     # velocity relaxation factor
-alpha_v = 0.99
-alpha_p = 1   # pressure relaxation factor
+alpha_u = 0.1     # velocity relaxation factor
+alpha_v = 0.1
+alpha_p = 0.3   # pressure relaxation factor
 max_iter = 10000
 tol = 1e-5
 tune = False
+amg = False     # amg pressure solver for high Re, Jacobian for low Re
 
 # name and folder of the case
 name = 'cavity_flow'
@@ -47,7 +48,7 @@ cavity = CavitySIMPLE(
 )
 
 # solve
-cavity.solve(tune=tune)
+cavity.solve(tune=tune, amg=amg)
 
 # get results
 u, v, p = cavity.get_center_velocity()

@@ -674,7 +674,7 @@ class OGridLaplaceGenerator:
                 plt.savefig(f'{file_name}.png', dpi=600)
             else:
                 plt.savefig(f'{file_name}_finer.png')
-        
+        # test
         
 
     def plot_computational_grid(self):

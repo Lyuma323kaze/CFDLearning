@@ -141,12 +141,12 @@ class CavitySIMPLE(DiffSchemes):
 
     def build_A_matrix(self, c_ew, c_ns):
         """
-        构建压力修正方程的稀疏矩阵 A(五点差分形式)
-        输入：
-            c_ew: (nx-1, ny) —— 东西向导热系数
-            c_ns: (nx, ny-1) —— 南北向导热系数
-        返回：
-            A: (nx*ny, nx*ny) 稀疏矩阵
+        construct sparse coef matrix A for p' (5 point form)
+        input:
+            c_ew: (nx-1, ny)
+            c_ns: (nx, ny-1)
+        return:
+            A: (nx*ny, nx*ny) sparse matrix
         """
         nx, ny = c_ns.shape
         N = nx * ny

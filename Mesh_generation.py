@@ -731,7 +731,7 @@ class OGridLaplaceGenerator:
             plt.show()
         else:
             if not lim:
-                plt.savefig(f'{file_name}.png', dpi=600)
+                plt.savefig(f'{file_name}.png')
             else:
                 plt.savefig(f'{file_name}_finer.png')
         
@@ -776,7 +776,7 @@ if __name__ == '__main__':
     # outer boundary: circle with radius 3.0
     # t ranges from 0 to 1
     
-    def outer_circle_boundary(t, radius=80.0, center_x=0.0, center_y=0.0):
+    def outer_circle_boundary(t, radius=20.0, center_x=0.0, center_y=0.0):
         angle = 2 * np.pi * t
         x = center_x + radius * np.cos(angle)
         y = center_y + radius * np.sin(angle)
@@ -810,18 +810,18 @@ if __name__ == '__main__':
         return x * chord_length, y_sign * yt * chord_length
 
     # mesh generation parameters
-    NI_points = 200  # angular points number
-    NJ_points = 100  # axial points number
+    NI_points = 400  # angular points number
+    NJ_points = 1000  # axial points number
     alpha = 0.2     # relaxation factor
     beta = 1     # distribution factor, larger beta means more points near the leading edge
     tol = 1e-4      # convergence tolerance
     symmetric = True  # symmetric endpoint for inner boundary
     chord_length = 1.0  # chord length for NACA0012 airfoil
-    radius = 5.0  # radius for outer circle boundary
+    radius = 20.0  # radius for outer circle boundary
     source_intensity_left = -8000  # source intensity for Laplace solver
     source_intensity_right = -8000  # source intensity for Laplace solver
     source_intensity_wall = -1  # source intensity for wall source
-    source_intensity_norm = 50 # source intensity for normal orthogonality
+    source_intensity_norm = 0 # source intensity for normal orthogonality
     source_radius_left = 0.15  # source radius for Laplace solver
     source_radius_right = 0.1  # source radius for Laplace solver
     source_radius_wall = 0.1  # source radius for wall source

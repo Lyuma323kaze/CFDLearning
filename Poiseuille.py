@@ -16,7 +16,7 @@ nu = 1                    # 运动粘度
 U0 = 1.0                  # 中心线速度
 H = Ly                    # 管道高度
 max_iter = 15000
-tol = 1e-6
+tol = 1e-7
 
 t = np.arange(0, 10, dt)   # 时间数组
 
@@ -47,6 +47,7 @@ u, v = solver.get_velocity_field()
 
 u_outlet = u[-1, :]   # u profile at outlet
 v_outlet = v[-1, :]   # v profile at outlet
+theo_outlet = 6 * y * (1 - y)
 
 # plot figure
 plt.figure(figsize=(10, 6))
@@ -54,6 +55,7 @@ plt.figure(figsize=(10, 6))
 # plot u
 plt.subplot(2, 1, 1)
 plt.plot(y, u_outlet, 'b-o', linewidth=2, markersize=4, label='u')
+plt.plot(y, theo_outlet, 'y', linewidth=2, label='theoretical solution')
 plt.grid(True)
 plt.title('Downstream Velocity Profile (x = L)')
 plt.ylabel('u Velocity')
@@ -76,6 +78,7 @@ plt.savefig(file_path)
 plt.figure(figsize=(10, 5))
 plt.plot(y, u_outlet, 'b-o', label='u', markersize=4)
 plt.plot(y, v_outlet, 'r-o', label='v', markersize=4)
+plt.plot(y, theo_outlet, 'y', linewidth=2, label='theoretical solution')
 plt.grid(True)
 plt.title('Downstream Velocity Profile (x = L)')
 plt.xlabel('y Coordinate')

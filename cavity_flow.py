@@ -10,16 +10,16 @@ x = np.linspace(0, 1, nx)
 y = np.linspace(0, 1, ny)
 dx = x[1] - x[0]
 dy = y[1] - y[0]
-cfl = 1e-1
+cfl = 0.5
 dt = cfl * min(dx, dy)  # time step
 Re = 1000 # Reynolds number 
 U_top = 1
 alpha_u = 0.9     # velocity relaxation factor
 alpha_v = 0.9
-alpha_p = 0.6   # pressure relaxation factor
+alpha_p = 0.9   # pressure relaxation factor
 max_iter = 10000
 tol = 1e-5
-tune = True
+tune = False
 amg = True     # amg pressure solver for high Re, Jacobian for low Re
 
 # name and folder of the case
@@ -59,7 +59,10 @@ x = np.linspace(0.5/(nx), 1-0.5/(nx), nx)  # x of principle nodes
 y = np.linspace(0.5/(ny), 1-0.5/(ny), ny)  # y of principle nodes
 X, Y = np.meshgrid(x, y, indexing='ij')  # mesh
 speed = np.sqrt(u**2 + v**2)
-
+vmin = speed.min()
+vmax = speed.max()
+pmin = p.min()
+pmax = p.max()
 
 plt.figure(figsize=(12, 5))
 
@@ -69,7 +72,11 @@ plt.subplot(1, 2, 1)
 stream = plt.streamplot(X.T, Y.T, u.T, v.T, 
                density=3, color=speed.T, linewidth=1, arrowsize=1,cmap='jet')
 plt.title('Streamlines')
-cbar = plt.colorbar(stream.lines)
+vbar = plt.colorbar(stream.lines)
+vbar.set_ticks([vmin, vmax])  # max/min values
+vbar.set_label('Velocity')
+vbar.ax.set_yticklabels([f'{vmin:.1f}', f'{vmax:.1f}'])
+
 plt.xlabel('x')
 plt.ylabel('y')
 plt.xlim(0, 1)
@@ -80,7 +87,9 @@ plt.gca().set_aspect('equal')  # ensure same proportion of axes
 plt.subplot(1, 2, 2)
 # pressure contour, 20 the density
 contour = plt.contourf(X, Y, p, 20, cmap='coolwarm')
-plt.colorbar(contour, label='Pressure')
+pbar = plt.colorbar(contour, label='Pressure')
+pbar.set_ticks([pmin, pmax])  # max/min values
+pbar.ax.set_yticklabels([f'{pmin:.1f}', f'{pmax:.1f}'])
 plt.title('Pressure Contour')
 plt.xlabel('x')
 plt.ylabel('y')

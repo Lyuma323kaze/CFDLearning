@@ -91,7 +91,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
         else:
             print("Reached maximum iterations")
 
-    def solve_vorticity_transport(self, alpha_vorticity=0.1):
+    def solve_vorticity_transport(self, alpha_vorticity=0.6):
         """solve vorticity transport equation (FTCS)"""
         new_vort = np.copy(self.vorticity)
         
@@ -110,7 +110,7 @@ class VorticityStreamPoiseuille(DiffSchemes):
         new_vort[1:-1,1:-1] = self.vorticity[1:-1, 1:-1] + alpha_vorticity * omega_change
         self.vorticity[1:-1, 1:-1] = new_vort[1:-1, 1:-1]
 
-    def solve_psi_poisson(self, max_iter=1000, tol=1e-4, alpha_psi=0.1):
+    def solve_psi_poisson(self, max_iter=1000, tol=1e-4, alpha_psi=0.6):
         """solve Poisson equation for stream function"""
         for _ in range(max_iter):
             psi_old = self.psi.copy()
